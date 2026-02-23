@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>StockEx User Guide</title>
+  <style>
+    @page { margin: 2cm; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; color: #333; }
+    h1 { color: #1a1a2e; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }
+    h2 { color: #2e7d32; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 5px; page-break-after: avoid; }
+    h3 { color: #1565c0; margin-top: 20px; }
+    h4 { color: #555; margin-top: 15px; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #f5f5f5; font-weight: bold; }
+    .header { text-align: center; margin-bottom: 30px; }
+    .subtitle { color: #666; font-size: 18px; }
+    .section { page-break-inside: avoid; margin-bottom: 25px; }
+    .highlight { background: #e8f5e9; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #4CAF50; }
+    .info { background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #2196F3; }
+    .warning { background: #fff3e0; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #ff9800; }
+    .green { color: #2e7d32; }
+    .red { color: #c62828; }
+    .blue { color: #1565c0; }
+    .screenshot { text-align: center; margin: 20px 0; }
+    .screenshot img { max-width: 100%; border: 1px solid #ddd; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    hr { border: none; border-top: 1px solid #ddd; margin: 30px 0; }
+    .footer { text-align: center; color: #666; font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; }
+    .toc { background: #fafafa; padding: 20px; border-radius: 5px; margin: 20px 0; }
+    .toc ul { margin: 0; padding-left: 20px; }
+    .toc li { margin: 5px 0; }
+    .arch-diagram { background: #f5f5f5; padding: 20px; border-radius: 5px; font-family: monospace; white-space: pre; font-size: 12px; overflow-x: auto; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+    .module-box { border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 15px 0; background: #fafafa; }
+    .module-box h4 { margin-top: 0; color: #1a1a2e; }
+    .port { display: inline-block; background: #e3f2fd; padding: 2px 8px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>StockEx Trading Dashboard</h1>
+  <p class="subtitle">Complete User & Technical Guide v1.0</p>
+</div>
+
+<div class="toc">
+  <strong>Table of Contents</strong>
+  <ul>
+    <li>1. Introduction</li>
+    <li>2. System Architecture</li>
+    <li>3. Module Descriptions</li>
+    <li>4. Dashboard User Interface</li>
+    <li>5. Data Flow & Messaging</li>
+    <li>6. Configuration</li>
+    <li>7. Quick Reference</li>
+  </ul>
+</div>
+
+<hr>
+
+<div class="section">
+  <h2>1. Introduction</h2>
+  <p><strong>StockEx</strong> is a comprehensive real-time trading simulation platform inspired by Euronext OPTIQ. It provides a complete electronic trading ecosystem including order entry, matching engine, market data distribution, and live visualization.</p>
+
+  <div class="highlight">
+    <strong>Key Features:</strong>
+    <ul>
+      <li>FIX 4.4 protocol support for institutional order entry</li>
+      <li>Real-time order matching with price-time priority</li>
+      <li>Live market data streaming via Kafka</li>
+      <li>Web-based dashboard with Server-Sent Events (SSE)</li>
+      <li>Order management (Edit/Cancel) capabilities</li>
+      <li>Trading analytics and statistics</li>
+    </ul>
+  </div>
+
+  <div class="info">
+    <strong>Access URLs:</strong><br>
+    Dashboard: <code>http://localhost:5005</code><br>
+    Frontend (Order Entry): <code>http://localhost:5000</code><br>
+    FIX Gateway: <code>localhost:5001</code><br>
+    Matcher API: <code>http://localhost:6000</code>
+  </div>
+</div>
+
+<div class="screenshot">
+  <img src="screenshots/dashboard.png" alt="Trading Dashboard">
+  <p><em>StockEx Trading Dashboard - Real-time Market View</em></p>
+</div>
+
+<div class="section">
+  <h2>2. System Architecture</h2>
+
+  <div class="arch-diagram">
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  FIX UI Client  │     │  FIX UI Client  │     │    Frontend     │
+│    (Port 5002)  │     │    (Port 5003)  │     │   (Port 5000)   │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         │ FIX 4.4               │ FIX 4.4               │ HTTP
+         ▼                       ▼                       ▼
+┌────────────────────────────────────────────────────────────────┐
+│                      FIX OEG (Port 5001)                       │
+│                   QuickFIX Order Entry Gateway                 │
+└────────────────────────────────┬───────────────────────────────┘
+                                 │
+                                 ▼ Kafka [orders]
+┌────────────────────────────────────────────────────────────────┐
+│                    Apache Kafka (Port 9092)                    │
+│              Topics: orders, trades, snapshots                 │
+└───────┬────────────────────┬───────────────────────┬───────────┘
+        │                    │                       │
+        ▼                    ▼                       ▼
+┌───────────────┐    ┌───────────────┐      ┌───────────────┐
+│    Matcher    │    │  MD Feeder    │      │   Dashboard   │
+│  (Port 6000)  │    │   (MDF)       │      │  (Port 5005)  │
+│               │    │               │      │               │
+│ Order Book    │    │ Price Sim     │      │ Web UI + SSE  │
+│ Trade Match   │    │ BBO Publish   │      │ Real-time     │
+└───────────────┘    └───────────────┘      └───────────────┘
+  </div>
+</div>
+
+<div class="section">
+  <h2>3. Module Descriptions</h2>
+
+  <div class="module-box">
+    <h4>Zookeeper</h4>
+    <p><span class="port">Port 2181</span></p>
+    <p>Apache Zookeeper provides distributed coordination for the Kafka cluster. It manages broker metadata, topic configurations, and cluster membership.</p>
+    <table>
+      <tr><th>Function</th><td>Kafka cluster coordination</td></tr>
+      <tr><th>Technology</th><td>Confluent Zookeeper 7.5.0</td></tr>
+      <tr><th>Dependencies</th><td>None</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>Kafka Message Broker</h4>
+    <p><span class="port">Port 9092</span> <span class="port">Port 29092 (host)</span></p>
+    <p>Apache Kafka serves as the central message backbone for the entire system. All order flow, trade executions, and market data are distributed through Kafka topics.</p>
+    <table>
+      <tr><th>Function</th><td>Message streaming and event distribution</td></tr>
+      <tr><th>Technology</th><td>Confluent Kafka 7.5.0</td></tr>
+      <tr><th>Topics</th><td><code>orders</code>, <code>trades</code>, <code>snapshots</code></td></tr>
+      <tr><th>Dependencies</th><td>Zookeeper</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>FIX Order Entry Gateway (FIX OEG)</h4>
+    <p><span class="port">Port 5001</span></p>
+    <p>The FIX OEG is a QuickFIX/Python acceptor that receives orders via FIX 4.4 protocol from institutional clients. It validates incoming messages, normalizes them to JSON format, and publishes to the Kafka <code>orders</code> topic.</p>
+    <table>
+      <tr><th>Function</th><td>FIX protocol order reception and normalization</td></tr>
+      <tr><th>Technology</th><td>QuickFIX/Python</td></tr>
+      <tr><th>Protocol</th><td>FIX 4.4</td></tr>
+      <tr><th>Message Types</th><td>NewOrderSingle (D), OrderCancelRequest (F), OrderCancelReplaceRequest (G)</td></tr>
+      <tr><th>Output</th><td>Kafka <code>orders</code> topic</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>FIX UI Clients</h4>
+    <p><span class="port">Port 5002 (Client 1)</span> <span class="port">Port 5003 (Client 2)</span></p>
+    <p>Web-based FIX initiator clients that connect to the FIX OEG. They provide a user interface for submitting orders via FIX protocol, simulating institutional trading terminals.</p>
+    <table>
+      <tr><th>Function</th><td>FIX order submission interface</td></tr>
+      <tr><th>Technology</th><td>QuickFIX/Python + Flask</td></tr>
+      <tr><th>Features</th><td>New Order, Cancel, Amend</td></tr>
+      <tr><th>Connection</th><td>FIX 4.4 to FIX OEG</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>Matcher (Order Matching Engine)</h4>
+    <p><span class="port">Port 6000</span></p>
+    <p>The core matching engine that maintains order books for all securities. It consumes orders from Kafka, attempts to match them using price-time priority, and publishes resulting trades. Provides REST API for order book and trade queries.</p>
+    <table>
+      <tr><th>Function</th><td>Order matching, trade execution, order book management</td></tr>
+      <tr><th>Technology</th><td>Python/Flask with SQLite persistence</td></tr>
+      <tr><th>Algorithm</th><td>Price-Time Priority (FIFO)</td></tr>
+      <tr><th>Input</th><td>Kafka <code>orders</code> topic</td></tr>
+      <tr><th>Output</th><td>Kafka <code>trades</code> topic</td></tr>
+      <tr><th>API Endpoints</th><td><code>/orderbook/&lt;symbol&gt;</code>, <code>/trades</code>, <code>/health</code></td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>Market Data Feeder (MDF)</h4>
+    <p><span class="port">Internal</span></p>
+    <p>Simulates market data by generating random orders and publishing Best Bid/Offer (BBO) snapshots. Creates realistic market activity with configurable order rates and price movements.</p>
+    <table>
+      <tr><th>Function</th><td>Market simulation and BBO publishing</td></tr>
+      <tr><th>Technology</th><td>Python</td></tr>
+      <tr><th>Output</th><td>Kafka <code>orders</code> and <code>snapshots</code> topics</td></tr>
+      <tr><th>Order Mix</th><td>90% passive (book building), 10% aggressive (trades)</td></tr>
+      <tr><th>Rate</th><td>Configurable (default: 8 orders/minute)</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>Dashboard</h4>
+    <p><span class="port">Port 5005</span></p>
+    <p>Real-time web dashboard providing comprehensive market visualization. Uses Server-Sent Events (SSE) for live streaming updates without page refresh. Displays orders, trades, market snapshots, order book depth, and trading statistics.</p>
+    <table>
+      <tr><th>Function</th><td>Real-time market visualization and order management</td></tr>
+      <tr><th>Technology</th><td>Python/Flask + JavaScript</td></tr>
+      <tr><th>Streaming</th><td>Server-Sent Events (SSE)</td></tr>
+      <tr><th>Input</th><td>Kafka topics + Matcher REST API</td></tr>
+      <tr><th>Features</th><td>Orders, Trades, BBO, Order Book, Charts, Statistics</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>Frontend (Manual Order Entry)</h4>
+    <p><span class="port">Port 5000</span></p>
+    <p>Simple web interface for manual order submission. Allows users to enter orders directly without FIX protocol, useful for testing and demonstration.</p>
+    <table>
+      <tr><th>Function</th><td>Manual order entry interface</td></tr>
+      <tr><th>Technology</th><td>Python/Flask</td></tr>
+      <tr><th>Output</th><td>Kafka <code>orders</code> topic</td></tr>
+    </table>
+  </div>
+
+  <div class="module-box">
+    <h4>Consumer (Debug)</h4>
+    <p><span class="port">Internal</span></p>
+    <p>Debug utility that consumes and logs messages from Kafka topics. Useful for monitoring message flow and troubleshooting.</p>
+  </div>
+
+  <div class="module-box">
+    <h4>Snapshot Viewer</h4>
+    <p><span class="port">Internal</span></p>
+    <p>Utility service that subscribes to the <code>snapshots</code> topic and logs BBO updates. Writes to log files for analysis.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>4. Dashboard User Interface</h2>
+
+  <h3>4.1 Orders Panel</h3>
+  <p>Displays real-time incoming orders with full management capabilities.</p>
+  <table>
+    <tr><th>Column</th><th>Description</th></tr>
+    <tr><td>Symbol</td><td>Stock ticker (ALPHA, EXAE, PEIR, QUEST)</td></tr>
+    <tr><td>Side</td><td><span class="green">BUY</span> (green) or <span class="red">SELL</span> (red)</td></tr>
+    <tr><td>Qty</td><td>Order quantity in shares</td></tr>
+    <tr><td>Price</td><td>Limit price</td></tr>
+    <tr><td>Source</td><td>Order origin (MDF, FIX, Manual)</td></tr>
+    <tr><td>Time</td><td>Order timestamp</td></tr>
+    <tr><td>Actions</td><td><span class="blue">Edit</span> / <span class="red">Cancel</span> buttons</td></tr>
+  </table>
+  <p><strong>Row Selection:</strong> Click any row to select, then use header buttons for bulk actions.</p>
+
+  <h3>4.2 Market Snapshot</h3>
+  <p>Shows Best Bid/Offer (BBO) for all securities with real-time updates.</p>
+  <table>
+    <tr><th>Column</th><th>Description</th></tr>
+    <tr><td>Symbol</td><td>Security identifier</td></tr>
+    <tr><td>Best Bid</td><td>Highest buy price <span class="green">(green)</span></td></tr>
+    <tr><td>Best Ask</td><td>Lowest sell price <span class="red">(red)</span></td></tr>
+    <tr><td>Spread</td><td>Ask - Bid difference</td></tr>
+    <tr><td>Mid</td><td>Midpoint: (Bid + Ask) / 2</td></tr>
+    <tr><td>Updated</td><td>Last update timestamp</td></tr>
+  </table>
+  <p><strong>Ticker Tape:</strong> Scrolling bar at bottom displays recent trades with price direction (▲ green up, ▼ red down).</p>
+
+  <h3>4.3 Trades Panel</h3>
+  <p>Lists all executed trades with calculated values.</p>
+  <table>
+    <tr><th>Column</th><th>Description</th></tr>
+    <tr><td>Symbol</td><td>Traded security</td></tr>
+    <tr><td>Qty</td><td>Executed quantity</td></tr>
+    <tr><td>Price</td><td>Execution price</td></tr>
+    <tr><td>Value</td><td>Trade value (Qty × Price)</td></tr>
+    <tr><td>Time</td><td>Execution timestamp</td></tr>
+  </table>
+
+  <h3>4.4 Order Book</h3>
+  <p>Displays full market depth for selected symbol.</p>
+  <ul>
+    <li>Select symbol from dropdown menu</li>
+    <li>Click <strong>Refresh</strong> to update (auto-refreshes every 3 seconds)</li>
+    <li><span class="green">Bid Qty / Bid Price</span> — Buy orders sorted by price (highest first)</li>
+    <li><span class="red">Ask Price / Ask Qty</span> — Sell orders sorted by price (lowest first)</li>
+    <li>Header shows total bid and ask counts</li>
+  </ul>
+
+  <h3>4.5 Trade Chart</h3>
+  <p>Visual representation of trade activity over time.</p>
+  <ul>
+    <li><span class="green">Green line</span> — Price trend connecting trade prices</li>
+    <li><span class="blue">Blue bars</span> — Volume per trade</li>
+    <li>Dropdown to filter by symbol or view all</li>
+    <li>Displays last 100 trades</li>
+  </ul>
+
+  <h3>4.6 Trading Statistics</h3>
+  <p>Aggregated metrics calculated from all trades.</p>
+  <table>
+    <tr><th>Metric</th><th>Description</th></tr>
+    <tr><td>Trades</td><td>Number of executed trades</td></tr>
+    <tr><td>Volume</td><td>Total shares traded</td></tr>
+    <tr><td>Value</td><td>Total monetary value (Σ Qty × Price)</td></tr>
+    <tr><td>Start</td><td>First trade price (opening)</td></tr>
+    <tr><td>Last</td><td>Most recent trade price</td></tr>
+    <tr><td>VWAP</td><td>Volume-Weighted Average Price</td></tr>
+  </table>
+  <p><strong>Bar Charts:</strong> Visual comparison showing <span class="green">Volume</span> and <span class="blue">Value</span> per symbol side by side.</p>
+</div>
+
+<div class="section">
+  <h2>5. Data Flow & Messaging</h2>
+
+  <h3>5.1 Kafka Topics</h3>
+  <table>
+    <tr><th>Topic</th><th>Producers</th><th>Consumers</th><th>Content</th></tr>
+    <tr><td><code>orders</code></td><td>FIX OEG, MDF, Frontend</td><td>Matcher, Dashboard</td><td>New orders, cancels, amends</td></tr>
+    <tr><td><code>trades</code></td><td>Matcher</td><td>Dashboard, Consumer</td><td>Executed trades</td></tr>
+    <tr><td><code>snapshots</code></td><td>MDF</td><td>Dashboard, Snapshot Viewer</td><td>BBO updates</td></tr>
+  </table>
+
+  <h3>5.2 Message Formats</h3>
+
+  <h4>Order Message</h4>
+  <div class="arch-diagram" style="font-size: 11px;">{
+  "symbol": "ALPHA",
+  "side": "BUY",
+  "price": 25.50,
+  "quantity": 100,
+  "cl_ord_id": "MDF-1234567890-1",
+  "timestamp": 1234567890.123,
+  "source": "MDF"
+}</div>
+
+  <h4>Trade Message</h4>
+  <div class="arch-diagram" style="font-size: 11px;">{
+  "symbol": "ALPHA",
+  "price": 25.50,
+  "quantity": 100,
+  "buy_order_id": "order-123",
+  "sell_order_id": "order-456",
+  "timestamp": 1234567890.123
+}</div>
+
+  <h4>Snapshot Message</h4>
+  <div class="arch-diagram" style="font-size: 11px;">{
+  "symbol": "ALPHA",
+  "best_bid": 25.45,
+  "best_ask": 25.55,
+  "bid_size": 500,
+  "ask_size": 300,
+  "timestamp": 1234567890.123,
+  "source": "MDF"
+}</div>
+</div>
+
+<div class="section">
+  <h2>6. Configuration</h2>
+
+  <table>
+    <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>KAFKA_BOOTSTRAP</code></td><td>kafka:9092</td><td>Kafka broker address</td></tr>
+    <tr><td><code>MATCHER_URL</code></td><td>http://matcher:6000</td><td>Matcher API endpoint</td></tr>
+    <tr><td><code>TICK_SIZE</code></td><td>0.05</td><td>Minimum price increment</td></tr>
+    <tr><td><code>ORDERS_PER_MIN</code></td><td>8</td><td>MDF order generation rate</td></tr>
+    <tr><td><code>SECURITIES_FILE</code></td><td>/app/data/securities.txt</td><td>Securities configuration</td></tr>
+  </table>
+
+  <h3>6.1 Supported Securities</h3>
+  <table>
+    <tr><th>Symbol</th><th>Start Price</th><th>Description</th></tr>
+    <tr><td>ALPHA</td><td>25.00</td><td>Test Security A</td></tr>
+    <tr><td>EXAE</td><td>42.00</td><td>Test Security B</td></tr>
+    <tr><td>PEIR</td><td>18.50</td><td>Test Security C</td></tr>
+    <tr><td>QUEST</td><td>12.75</td><td>Test Security D</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>7. Quick Reference</h2>
+
+  <h3>7.1 Starting the System</h3>
+  <div class="highlight">
+    <code>docker compose up --build</code>
+  </div>
+
+  <h3>7.2 Service URLs</h3>
+  <table>
+    <tr><th>Service</th><th>URL</th><th>Purpose</th></tr>
+    <tr><td>Dashboard</td><td>http://localhost:5005</td><td>Main trading view</td></tr>
+    <tr><td>Frontend</td><td>http://localhost:5000</td><td>Manual order entry</td></tr>
+    <tr><td>FIX Client 1</td><td>http://localhost:5002</td><td>FIX order submission</td></tr>
+    <tr><td>FIX Client 2</td><td>http://localhost:5003</td><td>FIX order submission</td></tr>
+    <tr><td>Matcher API</td><td>http://localhost:6000</td><td>REST API</td></tr>
+  </table>
+
+  <h3>7.3 Dashboard Actions</h3>
+  <table>
+    <tr><th>Action</th><th>How To</th></tr>
+    <tr><td>View order book depth</td><td>Select symbol from Order Book dropdown</td></tr>
+    <tr><td>Edit an order</td><td>Click <span class="blue">Edit</span> button on order row</td></tr>
+    <tr><td>Cancel an order</td><td>Click <span class="red">Cancel</span> button on order row</td></tr>
+    <tr><td>Filter trade chart</td><td>Select symbol from Trade Chart dropdown</td></tr>
+    <tr><td>Pause ticker tape</td><td>Hover mouse over the ticker</td></tr>
+    <tr><td>Select multiple orders</td><td>Click rows, use header Edit/Cancel buttons</td></tr>
+  </table>
+
+  <h3>7.4 Connection Status Indicators</h3>
+  <table>
+    <tr><th>Status</th><th>Indicator</th><th>Meaning</th></tr>
+    <tr><td>Live</td><td><span class="green">● Green</span></td><td>Connected to real-time stream</td></tr>
+    <tr><td>Connecting</td><td><span style="color:#ffc107;">● Yellow</span></td><td>Establishing connection</td></tr>
+    <tr><td>Disconnected</td><td><span class="red">● Red</span></td><td>Connection lost, auto-reconnecting</td></tr>
+  </table>
+</div>
+
+<hr>
+
+<div class="footer">
+  <p><strong>StockEx v1.0</strong> — Trading Simulation Platform</p>
+  <p>Inspired by Euronext OPTIQ</p>
+  <p style="margin-top: 15px; font-size: 11px;">To create PDF: Open in browser → Print (Ctrl+P) → Save as PDF</p>
+</div>
+
+</body>
+</html>

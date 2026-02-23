@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# FIX session runtime files
+fix-ui-client/log/
+fix-ui-client/store/
+fix_oeg/log/
+fix_oeg/store/
+
+# Application logs
+logs/
+
+# Runtime state
+shared_data/order_id.txt
+
+# SQLite databases
+*.db
+*.sqlite3
+
+# Docker volumes / local data
+matcher_data/
+
+# Windows artifact
+nul
+
+# Claude Code local config
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,312 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Order Entry</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
+    h1 { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+    h2 { margin: 5px 0 10px; font-size: 16px; }
+
+    .panel {
+      background: #fff;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 20px; }
+    .panel-inner {
+      background: #fff;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      min-height: 350px;
+    }
+
+    /* Status badge */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .status.connected { background: #d4edda; color: #155724; }
+    .status.connected .dot { background: #28a745; }
+    .status.disconnected { background: #f8d7da; color: #721c24; }
+    .status.disconnected .dot { background: #dc3545; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* Order form grid */
+    .order-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .form-group { }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    .btn-send {
+      width: 100%;
+      padding: 10px;
+      background: #2196F3;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .btn-send:hover { background: #1976D2; }
+
+    /* Order feedback */
+    #order-status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 10px;
+      display: none;
+    }
+    #order-status.success { background: #d4edda; color: #155724; display: block; }
+    #order-status.error   { background: #f8d7da; color: #721c24; display: block; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: center; }
+    th { background: #f0f0f0; font-weight: bold; }
+    tbody tr:hover { background: #f5f5f5; }
+    .bid { color: #2e7d32; font-weight: bold; }
+    .ask { color: #c62828; font-weight: bold; }
+
+    /* Highlight animation for new rows */
+    @keyframes highlight { from { background: #c8e6c9; } to { background: transparent; } }
+    .new-row { animation: highlight 2s ease-out; }
+
+    .refresh-info { font-size: 11px; color: #999; text-align: right; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+  <h1>
+    Order Entry
+    <span id="status-badge" class="status connected">
+      <span class="dot"></span>
+      <span id="status-text">Live</span>
+    </span>
+  </h1>
+
+  <!-- Order Entry (full width) -->
+  <div class="panel">
+    <h2>Place Order</h2>
+    <form id="orderForm" onsubmit="sendOrder(event)">
+      <div class="order-grid">
+        <div class="form-group">
+          <label>Order ID <span style="color:#bbb;">(optional)</span></label>
+          <input name="order_id" placeholder="Auto-generated">
+        </div>
+        <div class="form-group">
+          <label>Symbol</label>
+          <input name="symbol" value="FOO">
+        </div>
+        <div class="form-group">
+          <label>Side</label>
+          <select name="type">
+            <option value="buy">BUY</option>
+            <option value="sell">SELL</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Quantity</label>
+          <input name="quantity" type="number" value="10">
+        </div>
+        <div class="form-group full">
+          <label>Price</label>
+          <input name="price" type="number" step="0.01" value="100.00">
+        </div>
+        <div class="form-group full">
+          <button type="submit" class="btn-send">Send Order</button>
+        </div>
+      </div>
+    </form>
+    <div id="order-status"></div>
+  </div>
+
+  <!-- Order Book + Trades grid -->
+  <div class="grid">
+
+    <div class="panel-inner">
+      <h2>Order Book</h2>
+      <div style="flex-grow:1; overflow-y:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th class="bid">Bid Qty</th>
+              <th class="bid">Bid Price</th>
+              <th class="ask">Ask Price</th>
+              <th class="ask">Ask Qty</th>
+            </tr>
+          </thead>
+          <tbody id="book-body">
+            <tr><td colspan="4" style="color:#999;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refresh-info" id="book-updated">--</div>
+    </div>
+
+    <div class="panel-inner">
+      <h2>Trades <span id="trade-count" style="font-size:13px; color:#999; font-weight:normal;"></span></h2>
+      <div style="flex-grow:1; overflow-y:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Value</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body">
+            <tr><td colspan="5" style="color:#999;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refresh-info" id="trades-updated">--</div>
+    </div>
+
+  </div>
+
+  <script>
+    async function sendOrder(evt) {
+      evt.preventDefault();
+      const form = document.getElementById('orderForm');
+      const statusEl = document.getElementById('order-status');
+      const data = {
+        order_id: form.order_id.value || Date.now().toString(),
+        symbol:   form.symbol.value,
+        type:     form.type.value,
+        quantity: parseInt(form.quantity.value, 10),
+        price:    parseFloat(form.price.value),
+        timestamp: Date.now() / 1000
+      };
+      try {
+        const r = await fetch('/order', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
+        });
+        await r.json();
+        statusEl.className = 'success';
+        statusEl.textContent = `Order sent: ${data.type.toUpperCase()} ${data.quantity} ${data.symbol} @ ${data.price.toFixed(2)}`;
+        setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+        loadBook();
+      } catch(e) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Error sending order: ' + e.message;
+      }
+    }
+
+    function renderBook(b) {
+      const bids = (b.bids || []).sort((a, c) => (c.price || 0) - (a.price || 0));
+      const asks = (b.asks || []).sort((a, c) => (a.price || 0) - (c.price || 0));
+      const tbody = document.getElementById('book-body');
+      tbody.innerHTML = '';
+      const maxRows = Math.max(bids.length, asks.length);
+      if (maxRows === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:#999; text-align:center;">No resting orders</td></tr>';
+        return;
+      }
+      for (let i = 0; i < Math.min(maxRows, 20); i++) {
+        const bid = bids[i] || {};
+        const ask = asks[i] || {};
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="bid">${bid.quantity != null ? bid.quantity : ''}</td>
+          <td class="bid">${bid.price != null ? Number(bid.price).toFixed(2) : ''}</td>
+          <td class="ask">${ask.price != null ? Number(ask.price).toFixed(2) : ''}</td>
+          <td class="ask">${ask.quantity != null ? ask.quantity : ''}</td>
+        `;
+        tbody.appendChild(row);
+      }
+    }
+
+    let prevTradeCount = 0;
+    function renderTrades(trades) {
+      const tbody = document.getElementById('trades-body');
+      const isNew = trades.length > prevTradeCount;
+      tbody.innerHTML = '';
+      if (!trades || trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:#999; text-align:center;">No trades yet</td></tr>';
+        document.getElementById('trade-count').textContent = '';
+        return;
+      }
+      for (const t of trades.slice(0, 50)) {
+        const qty   = t.quantity || t.qty || 0;
+        const price = Number(t.price || 0);
+        const value = (qty * price).toFixed(2);
+        const ts    = t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString() : '-';
+        const row   = document.createElement('tr');
+        if (isNew) row.className = 'new-row';
+        row.innerHTML = `
+          <td><strong>${t.symbol || '?'}</strong></td>
+          <td>${qty}</td>
+          <td>${price.toFixed(2)}</td>
+          <td style="color:#666;">${value}</td>
+          <td style="font-size:11px;">${ts}</td>
+        `;
+        tbody.appendChild(row);
+      }
+      document.getElementById('trade-count').textContent = `(${trades.length})`;
+      prevTradeCount = trades.length;
+    }
+
+    async function loadBook() {
+      const now = new Date().toLocaleTimeString();
+      const badge = document.getElementById('status-badge');
+
+      try {
+        const r = await fetch('/book');
+        const b = await r.json();
+        renderBook(b);
+        document.getElementById('book-updated').textContent = 'Updated: ' + now;
+        badge.className = 'status connected';
+        document.getElementById('status-text').textContent = 'Live';
+      } catch(e) {
+        document.getElementById('book-body').innerHTML =
+          '<tr><td colspan="4" style="color:red; text-align:center;">Error loading book</td></tr>';
+        badge.className = 'status disconnected';
+        document.getElementById('status-text').textContent = 'Disconnected';
+      }
+
+      try {
+        const r2 = await fetch('/trades');
+        const t  = await r2.json();
+        renderTrades(Array.isArray(t) ? t : (t.trades || []));
+        document.getElementById('trades-updated').textContent = 'Updated: ' + now;
+      } catch(e) {
+        document.getElementById('trades-body').innerHTML =
+          '<tr><td colspan="5" style="color:red; text-align:center;">Error loading trades</td></tr>';
+      }
+    }
+
+    setInterval(loadBook, 2000);
+    window.onload = loadBook;
+  </script>
+</body>
+</html>

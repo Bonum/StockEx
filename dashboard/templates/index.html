@@ -1,0 +1,964 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Trading Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
+    h1 { display: flex; align-items: center; gap: 15px; }
+    h2 { margin: 5px 0; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 20px; }
+    .panel {
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      height: 400px;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .panel pre {
+      flex-grow: 1;
+      overflow-y: scroll;
+      background: #fafafa;
+      padding: 10px;
+      margin: 0;
+      border-radius: 6px;
+      font-size: 13px;
+      white-space: pre;
+      font-family: monospace;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+    }
+    .updated {
+      animation: flash 1s ease-in-out;
+    }
+    @keyframes flash {
+      from { background: yellow; }
+      to   { background: transparent; }
+    }
+    /* Connection status indicator */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .status.connected { background: #d4edda; color: #155724; }
+    .status.connected .dot { background: #28a745; }
+    .status.disconnected { background: #f8d7da; color: #721c24; }
+    .status.disconnected .dot { background: #dc3545; }
+    .status.connecting { background: #fff3cd; color: #856404; }
+    .status.connecting .dot { background: #ffc107; animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .new-item {
+      animation: highlight 2s ease-out;
+    }
+    @keyframes highlight {
+      from { background: #c8e6c9; }
+      to { background: transparent; }
+    }
+    /* Selectable rows */
+    .selectable-row { cursor: pointer; }
+    .selectable-row:hover { background: #f5f5f5; }
+    .selectable-row.selected { background: #e3f2fd !important; }
+
+    /* Ticker tape */
+    .ticker-container {
+      background: #1a1a2e;
+      overflow: hidden;
+      padding: 8px 0;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    .ticker-tape {
+      display: flex;
+      animation: ticker-scroll 30s linear infinite;
+      white-space: nowrap;
+    }
+    .ticker-tape:hover {
+      animation-play-state: paused;
+    }
+    @keyframes ticker-scroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 20px;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    .ticker-symbol {
+      color: #fff;
+      margin-right: 8px;
+    }
+    .ticker-price {
+      margin-right: 5px;
+    }
+    .ticker-price.up { color: #4caf50; }
+    .ticker-price.down { color: #f44336; }
+    .ticker-price.neutral { color: #ffc107; }
+    .ticker-change {
+      font-size: 11px;
+    }
+    .ticker-change.up { color: #4caf50; }
+    .ticker-change.down { color: #f44336; }
+    .ticker-arrow { margin-right: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Trading Dashboard <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting...</span></span></h1>
+  <div class="container">
+
+    <div class="panel">
+      <h2>Orders <span id="order-count" style="font-size:22px;color:#333;font-weight:bold;"></span>
+        <button id="edit-selected-btn" onclick="editSelectedOrder()" style="display:none; margin-left:10px; padding:4px 10px; background:#2196F3; color:#fff; border:none; border-radius:4px; cursor:pointer;">Edit</button>
+        <button id="cancel-selected-btn" onclick="cancelSelectedOrder()" style="display:none; margin-left:5px; padding:4px 10px; background:#f44336; color:#fff; border:none; border-radius:4px; cursor:pointer;">Cancel</button>
+      </h2>
+      <div style="flex-grow:1; overflow-y:auto;">
+        <table id="orders-table">
+          <thead>
+            <tr style="background:#f0f0f0;">
+              <th>Symbol</th>
+              <th>Side</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Source</th>
+              <th>Time</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="orders-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Order Edit Modal -->
+    <div id="order-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;">
+      <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#fff; padding:20px; border-radius:8px; min-width:300px;">
+        <h3 style="margin:0 0 15px;">Edit Order</h3>
+        <input type="hidden" id="edit-order-id">
+        <input type="hidden" id="edit-order-symbol">
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-size:12px; color:#666;">Quantity:</label>
+          <input type="number" id="edit-qty" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:15px;">
+          <label style="display:block; font-size:12px; color:#666;">Price:</label>
+          <input type="number" step="0.01" id="edit-price" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button onclick="submitAmend()" style="flex:1; padding:8px; background:#2196F3; color:#fff; border:none; border-radius:4px; cursor:pointer;">Update</button>
+          <button onclick="closeModal()" style="flex:1; padding:8px; background:#ccc; border:none; border-radius:4px; cursor:pointer;">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Market Snapshot</h2>
+      <div style="flex-grow:1; overflow-y:auto;">
+        <table id="bbos-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Best Bid</th>
+              <th>Best Ask</th>
+              <th>Spread</th>
+              <th>Mid</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="bbos-body"></tbody>
+        </table>
+      </div>
+      <div class="ticker-container">
+        <div class="ticker-tape" id="ticker-tape">
+          <span class="ticker-item"><span class="ticker-symbol">Loading trades...</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Trades <span id="trade-count" style="font-size:22px;color:#333;font-weight:bold;"></span></h2>
+      <div style="flex-grow:1; overflow-y:auto;">
+        <table id="trades-table">
+          <thead>
+            <tr style="background:#f0f0f0;">
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Value</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Trade Chart
+        <select id="chart-symbol" onchange="renderPriceChart()" style="margin-left:10px; padding:2px 5px;">
+          <option value="">All Symbols</option>
+        </select>
+      </h2>
+      <canvas id="price-chart" style="width:100%; flex-grow:1;"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>Order Book
+        <select id="bbo-symbol-select" onchange="renderOrderBookPanel()" style="margin-left:10px; padding:2px 5px;">
+        </select>
+        <button onclick="renderOrderBookPanel()" style="margin-left:5px; padding:2px 8px; cursor:pointer;">Refresh</button>
+      </h2>
+      <div id="full-bbo-container" style="flex-grow:1; overflow-y:auto; padding:5px;">
+        <p style="color:#666; text-align:center;">Select a symbol</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Trading Statistics</h2>
+      <div id="stats-container" style="flex-grow:1; overflow-y:auto; padding: 10px;">
+        <table id="stats-table" style="width:100%; margin-bottom:10px; font-size:12px;">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Trades</th>
+              <th>Volume</th>
+              <th>Value</th>
+              <th>Start</th>
+              <th>Last</th>
+              <th>VWAP</th>
+            </tr>
+          </thead>
+          <tbody id="stats-body"></tbody>
+        </table>
+        <div style="display:flex; gap:4px; justify-content:center; margin-top:5px;">
+          <div style="font-size:10px; color:#4CAF50; margin-right:10px;">■ Volume</div>
+          <div style="font-size:10px; color:#2196F3;">■ Value</div>
+        </div>
+        <div id="stats-chart" style="display:flex; align-items:flex-end; justify-content:center; gap:15px; height:120px; margin-top:5px;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // State
+    const state = {
+      orders: [],
+      trades: [],
+      bbos: {},
+      connected: false,
+      lastPrices: {}  // Track last price per symbol for ticker
+    };
+
+    function setStatus(status, text) {
+      const el = document.getElementById("status");
+      const textEl = document.getElementById("status-text");
+      el.className = "status " + status;
+      textEl.textContent = text;
+    }
+
+    function fmtOrder(o) {
+      const sym = (o.symbol ?? "?").padEnd(6);
+      const side = (o.type ?? o.side ?? "?").padEnd(4);
+      const price = o.price !== undefined ? Number(o.price).toFixed(2).padStart(8) : "   ?   ";
+      const qty = String(o.quantity ?? o.qty ?? "?").padStart(6);
+      const src = (o.source ?? "?").padEnd(8);
+      const ts = o.timestamp ? new Date(o.timestamp * 1000).toLocaleTimeString() : "-";
+      return `${sym} ${side} ${qty} @ ${price} | ${src} | ${ts}`;
+    }
+
+    function fmtTrade(t) {
+      const sym = (t.symbol ?? "?").padEnd(6);
+      const qty = String(t.quantity ?? t.qty ?? "-").padStart(6);
+      const price = t.price !== undefined ? Number(t.price).toFixed(2).padStart(8) : "   -   ";
+      const ts = t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString() : "-";
+      return `${sym} ${qty} x ${price} | ${ts}`;
+    }
+
+    // Selected order state
+    let selectedOrder = null;
+
+    function renderOrders() {
+      const tbody = document.getElementById("orders-body");
+      tbody.innerHTML = "";
+      for (let i = 0; i < state.orders.length; i++) {
+        const o = state.orders[i];
+        const row = document.createElement("tr");
+        const side = o.type ?? o.side ?? "?";
+        const isBuy = side.toLowerCase().includes("buy");
+        const orderId = o.cl_ord_id || o.order_id || o.id || "";
+
+        row.className = "selectable-row";
+        row.dataset.index = i;
+        row.dataset.orderId = orderId;
+        row.dataset.symbol = o.symbol || "";
+        row.dataset.qty = o.quantity || o.qty || 0;
+        row.dataset.price = o.price || 0;
+
+        if (selectedOrder && selectedOrder.index === i) {
+          row.classList.add("selected");
+        }
+
+        row.onclick = () => selectOrder(i, orderId, o.symbol, o.quantity || o.qty || 0, o.price || 0);
+
+        row.innerHTML = `
+          <td><strong>${o.symbol ?? "?"}</strong></td>
+          <td style="color:${isBuy ? '#2e7d32' : '#c62828'}; font-weight:bold;">${side}</td>
+          <td>${o.quantity ?? o.qty ?? "-"}</td>
+          <td>${o.price !== undefined ? Number(o.price).toFixed(2) : "-"}</td>
+          <td style="font-size:11px;">${o.source ?? "-"}</td>
+          <td style="font-size:11px;">${o.timestamp ? new Date(o.timestamp * 1000).toLocaleTimeString() : "-"}</td>
+          <td>
+            ${orderId ? `
+              <button onclick="event.stopPropagation(); editOrder('${orderId}', '${o.symbol}', ${o.quantity || o.qty || 0}, ${o.price || 0})"
+                      style="padding:2px 6px; font-size:11px; cursor:pointer; background:#2196F3; color:#fff; border:none; border-radius:3px; margin-right:3px;">Edit</button>
+              <button onclick="event.stopPropagation(); cancelOrder('${orderId}', '${o.symbol}')"
+                      style="padding:2px 6px; font-size:11px; cursor:pointer; background:#f44336; color:#fff; border:none; border-radius:3px;">Cancel</button>
+            ` : '<span style="color:#999; font-size:10px;">N/A</span>'}
+          </td>
+        `;
+        tbody.appendChild(row);
+      }
+      document.getElementById("order-count").textContent = `(${state.orders.length})`;
+      updateSelectionButtons();
+    }
+
+    function selectOrder(index, orderId, symbol, qty, price) {
+      // Toggle selection
+      if (selectedOrder && selectedOrder.index === index) {
+        selectedOrder = null;
+      } else {
+        selectedOrder = { index, orderId, symbol, qty, price };
+      }
+      // Update row highlighting
+      document.querySelectorAll("#orders-body tr").forEach((row, i) => {
+        row.classList.toggle("selected", selectedOrder && selectedOrder.index === i);
+      });
+      updateSelectionButtons();
+    }
+
+    function updateSelectionButtons() {
+      const editBtn = document.getElementById("edit-selected-btn");
+      const cancelBtn = document.getElementById("cancel-selected-btn");
+      if (selectedOrder && selectedOrder.orderId) {
+        editBtn.style.display = "inline-block";
+        cancelBtn.style.display = "inline-block";
+      } else {
+        editBtn.style.display = "none";
+        cancelBtn.style.display = "none";
+      }
+    }
+
+    function editSelectedOrder() {
+      if (selectedOrder && selectedOrder.orderId) {
+        editOrder(selectedOrder.orderId, selectedOrder.symbol, selectedOrder.qty, selectedOrder.price);
+      }
+    }
+
+    function cancelSelectedOrder() {
+      if (selectedOrder && selectedOrder.orderId) {
+        cancelOrder(selectedOrder.orderId, selectedOrder.symbol);
+      }
+    }
+
+    function renderTrades() {
+      const tbody = document.getElementById("trades-body");
+      tbody.innerHTML = "";
+      for (const t of state.trades) {
+        const row = document.createElement("tr");
+        const qty = t.quantity ?? t.qty ?? 0;
+        const price = t.price ?? 0;
+        const value = (qty * price).toFixed(2);
+        row.innerHTML = `
+          <td><strong>${t.symbol ?? "?"}</strong></td>
+          <td>${qty}</td>
+          <td>${price.toFixed(2)}</td>
+          <td style="color:#666;">${value}</td>
+          <td style="font-size:11px;">${t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString() : "-"}</td>
+        `;
+        tbody.appendChild(row);
+      }
+      document.getElementById("trade-count").textContent = `(${state.trades.length})`;
+      renderTicker();
+    }
+
+    function renderTicker() {
+      const ticker = document.getElementById("ticker-tape");
+      if (state.trades.length === 0) {
+        ticker.innerHTML = '<span class="ticker-item"><span class="ticker-symbol">Waiting for trades...</span></span>';
+        return;
+      }
+
+      // Get last 20 trades and build ticker items
+      const recentTrades = state.trades.slice(0, 20);
+      let tickerHTML = "";
+
+      for (const t of recentTrades) {
+        const symbol = t.symbol || "?";
+        const price = t.price || 0;
+        const qty = t.quantity || t.qty || 0;
+        const lastPrice = state.lastPrices[symbol];
+
+        // Determine direction
+        let direction = "neutral";
+        let arrow = "●";
+        if (lastPrice !== undefined) {
+          if (price > lastPrice) {
+            direction = "up";
+            arrow = "▲";
+          } else if (price < lastPrice) {
+            direction = "down";
+            arrow = "▼";
+          }
+        }
+
+        // Update last price
+        state.lastPrices[symbol] = price;
+
+        tickerHTML += `
+          <span class="ticker-item">
+            <span class="ticker-symbol">${symbol}</span>
+            <span class="ticker-price ${direction}">${price.toFixed(2)}</span>
+            <span class="ticker-change ${direction}">
+              <span class="ticker-arrow">${arrow}</span>${qty}
+            </span>
+          </span>
+        `;
+      }
+
+      // Duplicate for seamless scroll
+      ticker.innerHTML = tickerHTML + tickerHTML;
+    }
+
+    // Order management functions
+    function editOrder(orderId, symbol, qty, price) {
+      document.getElementById("edit-order-id").value = orderId;
+      document.getElementById("edit-order-symbol").value = symbol;
+      document.getElementById("edit-qty").value = qty;
+      document.getElementById("edit-price").value = price;
+      document.getElementById("order-modal").style.display = "block";
+    }
+
+    function closeModal() {
+      document.getElementById("order-modal").style.display = "none";
+    }
+
+    async function submitAmend() {
+      const orderId = document.getElementById("edit-order-id").value;
+      const symbol = document.getElementById("edit-order-symbol").value;
+      const qty = parseInt(document.getElementById("edit-qty").value);
+      const price = parseFloat(document.getElementById("edit-price").value);
+
+      try {
+        const r = await fetch("/order/amend", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            orig_cl_ord_id: orderId,
+            symbol: symbol,
+            quantity: qty,
+            price: price
+          })
+        });
+        const result = await r.json();
+        if (result.status === "ok") {
+          alert("Order amended successfully");
+          closeModal();
+          renderOrderBookPanel();
+        } else {
+          alert("Amend failed: " + (result.error || "Unknown error"));
+        }
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    }
+
+    async function cancelOrder(orderId, symbol) {
+      if (!confirm(`Cancel order ${orderId}?`)) return;
+
+      try {
+        const r = await fetch("/order/cancel", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            orig_cl_ord_id: orderId,
+            symbol: symbol
+          })
+        });
+        const result = await r.json();
+        if (result.status === "ok") {
+          alert("Order cancelled");
+          renderOrderBookPanel();
+        } else {
+          alert("Cancel failed: " + (result.error || "Unknown error"));
+        }
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    }
+
+    function renderBBOs() {
+      const tbody = document.getElementById("bbos-body");
+      tbody.innerHTML = "";
+      for (const [symbol, snap] of Object.entries(state.bbos).sort()) {
+        const row = document.createElement("tr");
+        row.id = "bbo-" + symbol;
+        const spread = (snap.best_ask && snap.best_bid) ? (snap.best_ask - snap.best_bid).toFixed(2) : "-";
+        const mid = (snap.best_ask && snap.best_bid) ? ((snap.best_ask + snap.best_bid) / 2).toFixed(2) : "-";
+        row.innerHTML = `
+          <td><strong>${symbol}</strong></td>
+          <td style="color:green;">${snap.best_bid !== null ? Number(snap.best_bid).toFixed(2) : "-"}</td>
+          <td style="color:red;">${snap.best_ask !== null ? Number(snap.best_ask).toFixed(2) : "-"}</td>
+          <td>${spread}</td>
+          <td>${mid}</td>
+          <td>${snap.timestamp ? new Date(snap.timestamp*1000).toLocaleTimeString() : "-"}</td>
+        `;
+        tbody.appendChild(row);
+      }
+      updateSymbolDropdown();
+    }
+
+    function updateBBO(symbol, data) {
+      state.bbos[symbol] = data;
+      const row = document.getElementById("bbo-" + symbol);
+      if (row) {
+        const spread = (data.best_ask && data.best_bid) ? (data.best_ask - data.best_bid).toFixed(2) : "-";
+        const mid = (data.best_ask && data.best_bid) ? ((data.best_ask + data.best_bid) / 2).toFixed(2) : "-";
+        row.innerHTML = `
+          <td><strong>${symbol}</strong></td>
+          <td style="color:green;">${data.best_bid !== null ? Number(data.best_bid).toFixed(2) : "-"}</td>
+          <td style="color:red;">${data.best_ask !== null ? Number(data.best_ask).toFixed(2) : "-"}</td>
+          <td>${spread}</td>
+          <td>${mid}</td>
+          <td>${data.timestamp ? new Date(data.timestamp*1000).toLocaleTimeString() : "-"}</td>
+        `;
+        row.classList.add("updated");
+        setTimeout(() => row.classList.remove("updated"), 1000);
+      } else {
+        renderBBOs();
+      }
+    }
+
+    function updateSymbolDropdown() {
+      const symbols = Object.keys(state.bbos).sort();
+
+      // Update BBO symbol select
+      const bboSel = document.getElementById("bbo-symbol-select");
+      const bboCurrent = bboSel.value;
+      if (symbols.length > 0 && bboSel.options.length !== symbols.length) {
+        bboSel.innerHTML = "";
+        symbols.forEach(sym => {
+          const opt = document.createElement("option");
+          opt.value = sym;
+          opt.textContent = sym;
+          bboSel.appendChild(opt);
+        });
+        if (bboCurrent && symbols.includes(bboCurrent)) {
+          bboSel.value = bboCurrent;
+        }
+        renderOrderBookPanel();
+      }
+
+      // Update chart symbol select
+      const chartSel = document.getElementById("chart-symbol");
+      const chartCurrent = chartSel.value;
+      const existingOpts = Array.from(chartSel.options).map(o => o.value);
+      symbols.forEach(sym => {
+        if (!existingOpts.includes(sym)) {
+          const opt = document.createElement("option");
+          opt.value = sym;
+          opt.textContent = sym;
+          chartSel.appendChild(opt);
+        }
+      });
+      if (chartCurrent) chartSel.value = chartCurrent;
+    }
+
+    async function renderOrderBookPanel() {
+      const sel = document.getElementById("bbo-symbol-select");
+      const symbol = sel.value;
+      const container = document.getElementById("full-bbo-container");
+
+      if (!symbol) {
+        container.innerHTML = "<p style='color:#666; text-align:center;'>Select a symbol</p>";
+        return;
+      }
+
+      container.innerHTML = "<p style='color:#666; text-align:center;'>Loading...</p>";
+
+      try {
+        const r = await fetch(`/orderbook/${symbol}`);
+        const book = await r.json();
+        const bids = (book.bids || []).sort((a,b) => (b.price || 0) - (a.price || 0));
+        const asks = (book.asks || []).sort((a,b) => (a.price || 0) - (b.price || 0));
+
+        let html = `<div style="text-align:center; margin-bottom:10px; font-size:12px; color:#666;">
+          ${bids.length} bids | ${asks.length} asks
+        </div>`;
+
+        html += `<table style="width:100%; font-size:12px; border-collapse:collapse;">
+          <thead>
+            <tr style="background:#f0f0f0;">
+              <th style="padding:6px; border:1px solid #ddd; color:#2e7d32;">Bid Qty</th>
+              <th style="padding:6px; border:1px solid #ddd; color:#2e7d32;">Bid Price</th>
+              <th style="padding:6px; border:1px solid #ddd; color:#c62828;">Ask Price</th>
+              <th style="padding:6px; border:1px solid #ddd; color:#c62828;">Ask Qty</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+        const maxRows = Math.max(bids.length, asks.length, 1);
+        for (let i = 0; i < Math.min(maxRows, 20); i++) {
+          const b = bids[i] || {};
+          const a = asks[i] || {};
+          html += `<tr>
+            <td style="padding:4px 6px; border:1px solid #eee; color:#2e7d32; font-weight:bold; text-align:right;">${b.quantity ?? ""}</td>
+            <td style="padding:4px 6px; border:1px solid #eee; color:#2e7d32; text-align:right;">${b.price !== undefined ? Number(b.price).toFixed(2) : ""}</td>
+            <td style="padding:4px 6px; border:1px solid #eee; color:#c62828; text-align:left;">${a.price !== undefined ? Number(a.price).toFixed(2) : ""}</td>
+            <td style="padding:4px 6px; border:1px solid #eee; color:#c62828; font-weight:bold; text-align:left;">${a.quantity ?? ""}</td>
+          </tr>`;
+        }
+
+        html += `</tbody></table>`;
+
+        if (bids.length === 0 && asks.length === 0) {
+          html = "<p style='color:#666; text-align:center; margin-top:20px;'>No resting orders</p>";
+        }
+
+        container.innerHTML = html;
+      } catch (e) {
+        container.innerHTML = `<p style='color:red; text-align:center;'>Error: ${e.message}</p>`;
+      }
+    }
+
+    // Alias for backward compatibility
+    function renderFullBBO() { renderOrderBookPanel(); }
+
+    function renderPriceChart() {
+      const canvas = document.getElementById("price-chart");
+      const ctx = canvas.getContext("2d");
+      const selectedSymbol = document.getElementById("chart-symbol").value;
+
+      // Filter trades
+      let trades = state.trades.filter(t => !selectedSymbol || t.symbol === selectedSymbol);
+      trades = trades.slice(0, 100).reverse(); // Last 100, oldest first
+
+      if (trades.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#666";
+        ctx.font = "14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("No trade data available", canvas.width / 2, canvas.height / 2);
+        return;
+      }
+
+      // Set canvas size
+      canvas.width = canvas.offsetWidth || 400;
+      canvas.height = canvas.offsetHeight || 300;
+
+      const padding = { top: 20, right: 60, bottom: 50, left: 60 };
+      const chartWidth = canvas.width - padding.left - padding.right;
+      const chartHeight = canvas.height - padding.top - padding.bottom;
+
+      // Calculate ranges
+      const prices = trades.map(t => t.price);
+      const volumes = trades.map(t => t.quantity || t.qty || 0);
+      const minPrice = Math.min(...prices) * 0.995;
+      const maxPrice = Math.max(...prices) * 1.005;
+      const maxVolume = Math.max(...volumes);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw grid
+      ctx.strokeStyle = "#eee";
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = padding.top + (chartHeight * i / 5);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(canvas.width - padding.right, y);
+        ctx.stroke();
+      }
+
+      // Draw volume bars
+      const barWidth = Math.max(2, chartWidth / trades.length - 2);
+      ctx.fillStyle = "rgba(33, 150, 243, 0.3)";
+      trades.forEach((t, i) => {
+        const x = padding.left + (i / trades.length) * chartWidth;
+        const vol = t.quantity || t.qty || 0;
+        const barHeight = maxVolume > 0 ? (vol / maxVolume) * (chartHeight * 0.3) : 0;
+        ctx.fillRect(x, canvas.height - padding.bottom - barHeight, barWidth, barHeight);
+      });
+
+      // Draw price line
+      ctx.strokeStyle = "#4CAF50";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      trades.forEach((t, i) => {
+        const x = padding.left + (i / trades.length) * chartWidth + barWidth / 2;
+        const y = padding.top + chartHeight - ((t.price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Draw price points
+      ctx.fillStyle = "#4CAF50";
+      trades.forEach((t, i) => {
+        const x = padding.left + (i / trades.length) * chartWidth + barWidth / 2;
+        const y = padding.top + chartHeight - ((t.price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Y-axis labels (price)
+      ctx.fillStyle = "#333";
+      ctx.font = "11px Arial";
+      ctx.textAlign = "right";
+      for (let i = 0; i <= 5; i++) {
+        const price = minPrice + (maxPrice - minPrice) * (5 - i) / 5;
+        const y = padding.top + (chartHeight * i / 5);
+        ctx.fillText(price.toFixed(2), padding.left - 5, y + 4);
+      }
+
+      // Legend
+      ctx.font = "12px Arial";
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#4CAF50";
+      ctx.fillText("Price", padding.left, 12);
+      ctx.fillStyle = "rgba(33, 150, 243, 0.6)";
+      ctx.fillText("Volume", padding.left + 60, 12);
+      ctx.fillStyle = "#666";
+      ctx.fillText(`(${trades.length} trades${selectedSymbol ? " for " + selectedSymbol : ""})`, padding.left + 130, 12);
+    }
+
+    function renderOrderBook(book) {
+      const bids = (book.bids || []).sort((a,b) => (b.price || 0) - (a.price || 0));
+      const asks = (book.asks || []).sort((a,b) => (a.price || 0) - (b.price || 0));
+      const maxRows = Math.max(bids.length, asks.length, 1);
+      let html = "<table><tr><th>Bid Qty</th><th>Bid Price</th><th>Ask Price</th><th>Ask Qty</th></tr>";
+      for (let i = 0; i < maxRows; i++) {
+        const b = bids[i] || {};
+        const a = asks[i] || {};
+        html += `<tr>
+          <td style="color:green;">${b.quantity ?? ""}</td>
+          <td style="color:green;">${b.price !== undefined ? Number(b.price).toFixed(2) : ""}</td>
+          <td style="color:red;">${a.price !== undefined ? Number(a.price).toFixed(2) : ""}</td>
+          <td style="color:red;">${a.quantity ?? ""}</td>
+        </tr>`;
+      }
+      html += "</table>";
+      if (bids.length === 0 && asks.length === 0) {
+        html = "<p style='color:#666;text-align:center;margin-top:20px;'>No orders in book</p>";
+      }
+      return html;
+    }
+
+    function renderStats() {
+      // Calculate statistics from trades
+      const stats = {};
+      let maxVolume = 0;
+      let maxValue = 0;
+
+      for (const trade of state.trades) {
+        const sym = trade.symbol || "?";
+        if (!stats[sym]) {
+          stats[sym] = { trades: 0, volume: 0, totalValue: 0, startPrice: null, lastPrice: 0 };
+        }
+        const qty = trade.quantity || trade.qty || 0;
+        const price = trade.price || 0;
+        stats[sym].trades++;
+        stats[sym].volume += qty;
+        stats[sym].totalValue += qty * price;
+        if (stats[sym].startPrice === null) stats[sym].startPrice = price;
+        stats[sym].lastPrice = price;
+        if (stats[sym].volume > maxVolume) maxVolume = stats[sym].volume;
+        if (stats[sym].totalValue > maxValue) maxValue = stats[sym].totalValue;
+      }
+
+      // Render stats table
+      const tbody = document.getElementById("stats-body");
+      tbody.innerHTML = "";
+      const symbols = Object.keys(stats).sort();
+
+      for (const sym of symbols) {
+        const s = stats[sym];
+        const vwap = s.volume > 0 ? (s.totalValue / s.volume).toFixed(2) : "-";
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><strong>${sym}</strong></td>
+          <td>${s.trades}</td>
+          <td>${s.volume.toLocaleString()}</td>
+          <td>${s.totalValue.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+          <td>${s.startPrice !== null ? s.startPrice.toFixed(2) : "-"}</td>
+          <td>${s.lastPrice.toFixed(2)}</td>
+          <td>${vwap}</td>
+        `;
+        tbody.appendChild(row);
+      }
+
+      // Render grouped bar chart (Volume + Value side by side per symbol)
+      const statsChart = document.getElementById("stats-chart");
+      statsChart.innerHTML = "";
+
+      if (symbols.length === 0) {
+        statsChart.innerHTML = "<p style='color:#666; text-align:center; font-size:11px;'>No data</p>";
+        return;
+      }
+
+      for (const sym of symbols) {
+        const s = stats[sym];
+        const volPct = maxVolume > 0 ? (s.volume / maxVolume * 100) : 0;
+        const valPct = maxValue > 0 ? (s.totalValue / maxValue * 100) : 0;
+
+        const group = document.createElement("div");
+        group.style.cssText = "display:flex; flex-direction:column; align-items:center; gap:2px;";
+        group.innerHTML = `
+          <div style="display:flex; gap:2px; align-items:flex-end; height:80px;">
+            <div style="display:flex; flex-direction:column; align-items:center;">
+              <span style="font-size:9px; color:#4CAF50;">${s.volume >= 1000 ? (s.volume/1000).toFixed(1)+'k' : s.volume}</span>
+              <div style="width:20px; height:70px; background:#eee; border-radius:2px; display:flex; align-items:flex-end; overflow:hidden;">
+                <div style="width:100%; height:${volPct}%; background:linear-gradient(0deg, #4CAF50, #8BC34A);"></div>
+              </div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center;">
+              <span style="font-size:9px; color:#2196F3;">${s.totalValue >= 1000 ? (s.totalValue/1000).toFixed(1)+'k' : s.totalValue.toFixed(0)}</span>
+              <div style="width:20px; height:70px; background:#eee; border-radius:2px; display:flex; align-items:flex-end; overflow:hidden;">
+                <div style="width:100%; height:${valPct}%; background:linear-gradient(0deg, #2196F3, #64B5F6);"></div>
+              </div>
+            </div>
+          </div>
+          <span style="font-size:11px; font-weight:bold;">${sym}</span>
+        `;
+        statsChart.appendChild(group);
+      }
+    }
+
+    async function fetchOrderBook() {
+      // Deprecated - now using stats panel
+      renderStats();
+    }
+
+    // SSE Connection
+    let eventSource = null;
+    let reconnectTimeout = null;
+
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      setStatus("connecting", "Connecting...");
+      eventSource = new EventSource("/stream");
+
+      eventSource.addEventListener("connected", (e) => {
+        setStatus("connected", "Live");
+        state.connected = true;
+      });
+
+      eventSource.addEventListener("init", (e) => {
+        const data = JSON.parse(e.data);
+        state.orders = data.orders || [];
+        state.bbos = data.bbos || {};
+        state.trades = data.trades || [];
+        renderOrders();
+        renderTrades();
+        renderBBOs();
+        renderStats();
+        renderPriceChart();
+      });
+
+      eventSource.addEventListener("order", (e) => {
+        const order = JSON.parse(e.data);
+        state.orders.unshift(order);
+        if (state.orders.length > 50) state.orders.pop();
+        renderOrders();
+      });
+
+      eventSource.addEventListener("trade", (e) => {
+        const trade = JSON.parse(e.data);
+        state.trades.unshift(trade);
+        if (state.trades.length > 200) state.trades.pop();
+        renderTrades();
+        renderStats();
+        renderPriceChart();
+      });
+
+      eventSource.addEventListener("snapshot", (e) => {
+        const snap = JSON.parse(e.data);
+        updateBBO(snap.symbol, snap);
+      });
+
+      eventSource.onerror = () => {
+        setStatus("disconnected", "Disconnected");
+        state.connected = false;
+        eventSource.close();
+        // Reconnect after 3 seconds
+        reconnectTimeout = setTimeout(connectSSE, 3000);
+      };
+    }
+
+    // Fetch data from REST API
+    async function fetchData() {
+      try {
+        const r = await fetch("/data");
+        const data = await r.json();
+        state.orders = data.orders || [];
+        state.trades = data.trades || [];
+        state.bbos = data.bbos || {};
+        renderOrders();
+        renderTrades();
+        renderBBOs();
+        renderStats();
+        renderPriceChart();
+      } catch (e) {
+        console.error("Fetch data failed:", e);
+      }
+    }
+
+    // Initial load: fetch data via REST, then connect SSE
+    async function init() {
+      await fetchData();
+      connectSSE();
+
+      // Refresh order book panel every 3 seconds
+      setInterval(() => {
+        const sym = document.getElementById("bbo-symbol-select").value;
+        if (sym) renderOrderBookPanel();
+      }, 3000);
+
+      // Fallback: poll data every 5 seconds in case SSE fails
+      setInterval(fetchData, 5000);
+    }
+
+    init();
+  </script>
+</body>
+</html>
