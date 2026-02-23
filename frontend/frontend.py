@@ -61,6 +61,19 @@ def send_order():
     producer.flush()
     return jsonify({'status':'sent','data':data})
 
+@app.route('/securities')
+def securities():
+    symbols = []
+    try:
+        with open(Config.SECURITIES_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    symbols.append(line.split('\t')[0])
+    except Exception:
+        pass
+    return jsonify(symbols)
+
 @app.route('/book')
 def book():
     import requests
