@@ -17,7 +17,7 @@ from flask import Flask, jsonify, request
 
 from shared.config import Config
 from shared.kafka_utils import create_producer, create_consumer
-from database import init_db, save_trade, get_trades, get_trade_count, save_order, update_order_quantity, load_order_books
+from database import init_db, save_trade, get_trades, get_trade_count, save_order, update_order_quantity, load_order_books, cancel_order
 
 # Initialize database on startup
 init_db()
@@ -321,7 +321,6 @@ def handle_cancel(msg, producer=None):
         if found:
             # Update database
             try:
-                from database import cancel_order
                 cancel_order(orig_cl_ord_id)
             except Exception as e:
                 print(f"DB cancel_order error: {e}")
