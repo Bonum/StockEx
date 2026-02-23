@@ -329,7 +329,7 @@
     <div class="panel">
       <h2 style="flex-shrink:0;">Price Chart
         <select id="history-symbol" onchange="loadHistory()" style="margin-left:8px; padding:2px 4px; font-size:11px;">
-          <option value="">Symbol...</option>
+          <option value="">All Symbols</option>
         </select>
         <select id="history-period" onchange="loadHistory()" style="margin-left:4px; padding:2px 4px; font-size:11px;">
           <option value="live" selected>Live</option>
@@ -677,10 +677,9 @@
           histSel.appendChild(opt);
         }
       });
-      if (!histCurrent && histSel.options.length > 1) {
-        histSel.value = histSel.options[1].value;
-        loadHistory();
-      } else if (histCurrent) {
+      if (!histCurrent) {
+        loadHistory();   // draws all-symbols multi-chart
+      } else {
         histSel.value = histCurrent;
       }
     }
@@ -1114,11 +1113,152 @@
 
     // ── Price History chart ────────────────────────────────────────────────────
 
+    const CHART_COLORS = [
+      "#2196F3","#4CAF50","#FF9800","#E91E63","#9C27B0",
+      "#00BCD4","#FF5722","#8BC34A","#607D8B","#F44336"
+    ];
+
+    // ── Multi-symbol normalised % chart ────────────────────────────────────────
+    function drawMultiChart(series, labelSuffix) {
+      const canvas = document.getElementById("history-chart");
+      const ctx    = canvas.getContext("2d");
+      canvas.width  = canvas.offsetWidth  || 500;
+      canvas.height = canvas.offsetHeight || 300;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const active = series.filter(s => s.points.length > 0);
+      if (!active.length) {
+        ctx.fillStyle = "#999"; ctx.font = "13px Arial"; ctx.textAlign = "center";
+        ctx.fillText("No data for this period", canvas.width / 2, canvas.height / 2);
+        return;
+      }
+
+      const pad = { top: 18, right: 48, bottom: 32, left: 46 };
+      const W   = canvas.width  - pad.left - pad.right;
+      const H   = canvas.height - pad.top  - pad.bottom;
+
+      // Normalise each series to % change from its first point
+      const norm = active.map(s => {
+        const base = s.points[0].price || 1;
+        return { ...s, pcts: s.points.map(p => (p.price - base) / base * 100) };
+      });
+
+      const allPcts = norm.flatMap(s => s.pcts);
+      let minPct = Math.min(...allPcts);
+      let maxPct = Math.max(...allPcts);
+      const rng  = maxPct - minPct || 1;
+      minPct -= rng * 0.06;  maxPct += rng * 0.06;
+
+      // Global ts range
+      const allTs  = active.flatMap(s => s.points.map(p => p.ts));
+      const minTs  = Math.min(...allTs);
+      const maxTs  = Math.max(...allTs);
+      const tsRng  = maxTs - minTs || 1;
+
+      const toX = ts  => pad.left + ((ts  - minTs)  / tsRng)  * W;
+      const toY = pct => pad.top  + H - ((pct - minPct) / (maxPct - minPct)) * H;
+
+      // Grid + Y labels
+      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const pct = minPct + (maxPct - minPct) * i / 4;
+        const y   = toY(pct);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + W, y); ctx.stroke();
+        ctx.fillStyle = "#888"; ctx.font = "9px Arial"; ctx.textAlign = "right";
+        ctx.fillText(pct.toFixed(1) + "%", pad.left - 3, y + 3);
+      }
+
+      // Zero line
+      if (minPct < 0 && maxPct > 0) {
+        const y0 = toY(0);
+        ctx.strokeStyle = "#ccc"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(pad.left, y0); ctx.lineTo(pad.left + W, y0); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Series lines
+      norm.forEach((s, idx) => {
+        const color = CHART_COLORS[idx % CHART_COLORS.length];
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        s.points.forEach((p, i) => {
+          const x = toX(p.ts);
+          const y = toY(s.pcts[i]);
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      });
+
+      // Time labels (up to 4)
+      ctx.fillStyle = "#888"; ctx.font = "9px Arial"; ctx.textAlign = "center";
+      for (let i = 0; i <= 3; i++) {
+        const ts  = minTs + tsRng * i / 3;
+        const dt  = new Date(ts * 1000);
+        const lbl = (dt.getMonth()+1)+"/"+dt.getDate()+" "
+                  + dt.getHours().toString().padStart(2,"0")+":"
+                  + dt.getMinutes().toString().padStart(2,"0");
+        ctx.fillText(lbl, toX(ts), canvas.height - pad.bottom + 12);
+      }
+
+      // Right-side vertical legend
+      ctx.font = "9px Arial"; ctx.textAlign = "left";
+      norm.forEach((s, idx) => {
+        const color = CHART_COLORS[idx % CHART_COLORS.length];
+        const ly    = pad.top + idx * 13;
+        ctx.fillStyle = color;
+        ctx.fillRect(canvas.width - pad.right + 2, ly - 1, 10, 3);
+        ctx.fillText(s.symbol, canvas.width - pad.right + 14, ly + 3);
+      });
+
+      if (labelSuffix) {
+        ctx.fillStyle = "#bbb"; ctx.textAlign = "right";
+        ctx.fillText(labelSuffix, canvas.width - pad.right - 2, 12);
+      }
+    }
+
+    async function loadAllHistory() {
+      const period   = document.getElementById("history-period").value;
+      const statusEl = document.getElementById("history-status");
+      const symbols  = Object.keys(state.bbos).sort();
+
+      if (!symbols.length) {
+        drawMultiChart([], "");
+        statusEl.textContent = "No symbols yet";
+        return;
+      }
+
+      if (period === "live") {
+        const series = symbols.map(sym => {
+          let trades = state.trades.filter(t => t.symbol === sym).slice(0, 100).reverse();
+          return { symbol: sym, points: trades.map(t => ({ price: t.price || 0, ts: t.timestamp || Date.now()/1000 })) };
+        });
+        drawMultiChart(series, `${symbols.length} symbols`);
+        statusEl.textContent = `${symbols.length} symbols`;
+        return;
+      }
+
+      statusEl.textContent = "Loading...";
+      try {
+        const results = await Promise.all(
+          symbols.map(sym => fetch(`/history/${sym}?period=${period}`).then(r => r.json()))
+        );
+        const series = symbols.map((sym, i) => ({
+          symbol: sym,
+          points: (results[i].candles || []).map(c => ({ price: c.c, ts: c.t }))
+        }));
+        const filled = series.filter(s => s.points.length > 0);
+        drawMultiChart(series, `${filled.length} symbols`);
+        statusEl.textContent = `${filled.length} symbols`;
+      } catch (e) {
+        statusEl.textContent = "Error: " + e.message;
+      }
+    }
+
     async function loadHistory() {
       const sym    = document.getElementById("history-symbol").value;
       const period = document.getElementById("history-period").value;
       const statusEl = document.getElementById("history-status");
-      if (!sym) return;
+      if (!sym) { await loadAllHistory(); return; }
 
       if (period === "live") {
         let trades = state.trades.filter(t => t.symbol === sym);
