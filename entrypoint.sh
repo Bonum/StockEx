@@ -6,7 +6,9 @@ KAFKA_DIR=/opt/kafka
 export PYTHONPATH=/app
 export KAFKA_BOOTSTRAP=localhost:9092
 export MATCHER_URL=http://localhost:6000
-export PORT=7860
+export PORT=5000
+export FIX_CONFIG=/app/fix_ui/client_hf.cfg
+export UI_PORT=5002
 
 # ── Kafka (KRaft) ─────────────────────────────────────────────────────────────
 echo "[startup] Formatting Kafka storage (KRaft)..."
@@ -53,5 +55,17 @@ sleep 8
 echo "[startup] Starting MD Feeder..."
 python3 /app/mdf_simulator.py &
 
-echo "[startup] Starting Dashboard on port 7860..."
+echo "[startup] Starting FIX OEG on port 5001..."
+(cd /app/fix_oeg && python3 /app/fix_oeg/fix_oeg_server.py) &
+sleep 3
+
+echo "[startup] Starting FIX UI Client on port 5002..."
+python3 /app/fix_ui/fix_ui_client.py &
+sleep 2
+
+# ── nginx (reverse proxy: port 7860 → dashboard:5000 + fix-ui:5002) ───────────
+echo "[startup] Starting nginx on port 7860..."
+nginx
+
+echo "[startup] Starting Dashboard on port 5000..."
 exec python3 /app/dashboard.py
