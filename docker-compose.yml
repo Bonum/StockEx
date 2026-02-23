@@ -155,6 +155,7 @@ services:
     volumes:
       - ./dashboard:/app
       - ./shared:/app/shared
+      - ./shared_data:/app/data
     depends_on:
       - kafka
       - matcher

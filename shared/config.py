@@ -26,6 +26,9 @@ class Config:
     SECURITIES_FILE: str = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
     ORDER_ID_FILE: str = os.getenv("ORDER_ID_FILE", "/app/data/order_id.txt")
 
+    # Control topic for start/end of day signals
+    CONTROL_TOPIC: str = os.getenv("CONTROL_TOPIC", "control")
+
     # Trading simulation
     TICK_SIZE: float = float(os.getenv("TICK_SIZE", "0.05"))
     ORDERS_PER_MIN: int = int(os.getenv("ORDERS_PER_MIN", "8"))
