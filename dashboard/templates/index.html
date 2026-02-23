@@ -326,25 +326,24 @@
       </div>
     </div>
 
-  </div>
+    <div class="panel">
+      <h2 style="flex-shrink:0;">Price Chart
+        <select id="history-symbol" onchange="loadHistory()" style="margin-left:8px; padding:2px 4px; font-size:11px;">
+          <option value="">Symbol...</option>
+        </select>
+        <select id="history-period" onchange="loadHistory()" style="margin-left:4px; padding:2px 4px; font-size:11px;">
+          <option value="live" selected>Live</option>
+          <option value="1h">1H</option>
+          <option value="8h">8H</option>
+          <option value="1d">1D</option>
+          <option value="1w">1W</option>
+          <option value="1m">1M</option>
+        </select>
+        <span id="history-status" style="font-size:10px; color:#999; margin-left:6px;"></span>
+      </h2>
+      <canvas id="history-chart" style="width:100%; flex-grow:1; min-height:0;"></canvas>
+    </div>
 
-  <!-- Unified Price Chart panel (full width) -->
-  <div class="panel-full">
-    <h2>Price Chart
-      <select id="history-symbol" onchange="loadHistory()" style="margin-left:10px; padding:2px 5px;">
-        <option value="">Select symbol...</option>
-      </select>
-      <select id="history-period" onchange="loadHistory()" style="margin-left:5px; padding:2px 5px;">
-        <option value="live" selected>Live</option>
-        <option value="1h">1 Hour</option>
-        <option value="8h">8 Hours</option>
-        <option value="1d">1 Day</option>
-        <option value="1w">1 Week</option>
-        <option value="1m">1 Month</option>
-      </select>
-      <span id="history-status" style="font-size:12px; color:#999; margin-left:12px;"></span>
-    </h2>
-    <canvas id="history-chart" style="width:100%; height:350px; display:block;"></canvas>
   </div>
 
   <script>
@@ -746,113 +745,108 @@
     // Alias for backward compatibility
     function renderFullBBO() { renderOrderBookPanel(); }
 
-    // ── Unified price chart (live trades or OHLCV history) ─────────────────────
-    // points: [{price, volume, ts}]  – normalised by caller
+    // ── Unified price chart: candlesticks + close line + volume ────────────────
+    // points: [{open, high, low, close, volume, ts}]
     function drawChart(points, labelSuffix) {
       const canvas = document.getElementById("history-chart");
       const ctx    = canvas.getContext("2d");
-      canvas.width  = canvas.offsetWidth || 900;
-      canvas.height = parseInt(canvas.style.height) || 350;
+      canvas.width  = canvas.offsetWidth  || 500;
+      canvas.height = canvas.offsetHeight || 300;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (!points || points.length === 0) {
-        ctx.fillStyle = "#999"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+        ctx.fillStyle = "#999"; ctx.font = "13px Arial"; ctx.textAlign = "center";
         ctx.fillText("No data for this period", canvas.width / 2, canvas.height / 2);
         return;
       }
 
-      const pad = { top: 25, right: 20, bottom: 40, left: 65 };
-      const W  = canvas.width  - pad.left - pad.right;
-      const H  = canvas.height - pad.top  - pad.bottom;
-      const priceH = H * 0.72;
+      const pad  = { top: 18, right: 12, bottom: 32, left: 55 };
+      const W    = canvas.width  - pad.left - pad.right;
+      const H    = canvas.height - pad.top  - pad.bottom;
+      const priceH = H * 0.70;
       const gapH   = H * 0.03;
-      const volH   = H * 0.25;
+      const volH   = H * 0.27;
       const priceY = pad.top;
       const volY   = pad.top + priceH + gapH;
 
-      const prices  = points.map(p => p.price);
-      const volumes = points.map(p => p.volume);
-      const minP = Math.min(...prices) * 0.997;
-      const maxP = Math.max(...prices) * 1.003;
-      const maxV = Math.max(...volumes, 1);
-
-      const toY = p => priceY + priceH - ((p - minP) / (maxP - minP)) * priceH;
-
-      // Grid lines
-      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
-      for (let i = 0; i <= 5; i++) {
-        const y = priceY + priceH * i / 5;
-        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(canvas.width - pad.right, y); ctx.stroke();
-        ctx.fillStyle = "#666"; ctx.font = "10px Arial"; ctx.textAlign = "right";
-        const p = maxP - (maxP - minP) * i / 5;
-        ctx.fillText(p.toFixed(2), pad.left - 5, y + 4);
-      }
-
-      // Volume / price area divider
-      ctx.strokeStyle = "#ddd";
-      ctx.beginPath(); ctx.moveTo(pad.left, volY); ctx.lineTo(canvas.width - pad.right, volY); ctx.stroke();
+      const maxP = Math.max(...points.map(p => p.high))  * 1.002;
+      const minP = Math.min(...points.map(p => p.low))   * 0.998;
+      const maxV = Math.max(...points.map(p => p.volume), 1);
+      const toY  = p => priceY + priceH - ((p - minP) / (maxP - minP)) * priceH;
 
       const n     = points.length;
       const slotW = W / n;
-      const barW  = Math.max(2, Math.floor(slotW * 0.7));
+      const bodyW = Math.max(1, Math.floor(slotW * 0.65));
+
+      // Price grid
+      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = priceY + priceH * i / 4;
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(canvas.width - pad.right, y); ctx.stroke();
+        ctx.fillStyle = "#888"; ctx.font = "9px Arial"; ctx.textAlign = "right";
+        ctx.fillText((maxP - (maxP - minP) * i / 4).toFixed(2), pad.left - 3, y + 3);
+      }
+
+      // Volume / price divider
+      ctx.strokeStyle = "#e0e0e0";
+      ctx.beginPath(); ctx.moveTo(pad.left, volY); ctx.lineTo(canvas.width - pad.right, volY); ctx.stroke();
 
       // Volume bars
       points.forEach((p, i) => {
-        const x  = pad.left + i * slotW + (slotW - barW) / 2;
+        const x  = pad.left + i * slotW + (slotW - bodyW) / 2;
         const bh = (p.volume / maxV) * volH;
-        ctx.fillStyle = "rgba(33,150,243,0.35)";
-        ctx.fillRect(x, volY + volH - bh, barW, bh);
+        ctx.fillStyle = p.close >= p.open ? "rgba(38,166,154,0.4)" : "rgba(239,83,80,0.4)";
+        ctx.fillRect(x, volY + volH - bh, bodyW, bh);
       });
 
-      // Gradient fill under line
-      const grad = ctx.createLinearGradient(0, priceY, 0, priceY + priceH);
-      grad.addColorStop(0, "rgba(76,175,80,0.18)");
-      grad.addColorStop(1, "rgba(76,175,80,0)");
-      ctx.beginPath();
-      ctx.moveTo(pad.left + slotW / 2, toY(points[0].price));
-      points.forEach((p, i) => ctx.lineTo(pad.left + i * slotW + slotW / 2, toY(p.price)));
-      ctx.lineTo(pad.left + (n - 1) * slotW + slotW / 2, priceY + priceH);
-      ctx.lineTo(pad.left + slotW / 2, priceY + priceH);
-      ctx.closePath();
-      ctx.fillStyle = grad;
-      ctx.fill();
+      // Candlestick wicks + bodies
+      points.forEach((p, i) => {
+        const midX  = pad.left + i * slotW + slotW / 2;
+        const x     = pad.left + i * slotW + (slotW - bodyW) / 2;
+        const isUp  = p.close >= p.open;
+        const color = isUp ? "#26a69a" : "#ef5350";
 
-      // Price line
-      ctx.strokeStyle = "#4CAF50"; ctx.lineWidth = 2;
+        // Wick
+        ctx.strokeStyle = color; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(midX, toY(p.high)); ctx.lineTo(midX, toY(p.low)); ctx.stroke();
+
+        // Body (min 1px so single-price ticks still show)
+        const bodyTop = Math.min(toY(p.open), toY(p.close));
+        const bodyH   = Math.max(1, Math.abs(toY(p.close) - toY(p.open)));
+        ctx.fillStyle = color;
+        ctx.fillRect(x, bodyTop, bodyW, bodyH);
+      });
+
+      // Close-price line overlay (orange)
+      ctx.strokeStyle = "rgba(255,152,0,0.85)"; ctx.lineWidth = 1.5;
       ctx.beginPath();
       points.forEach((p, i) => {
         const x = pad.left + i * slotW + slotW / 2;
-        const y = toY(p.price);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        i === 0 ? ctx.moveTo(x, toY(p.close)) : ctx.lineTo(x, toY(p.close));
       });
       ctx.stroke();
 
-      // Dots (only when few points)
-      if (n <= 60) {
-        ctx.fillStyle = "#4CAF50";
-        points.forEach((p, i) => {
-          const x = pad.left + i * slotW + slotW / 2;
-          ctx.beginPath(); ctx.arc(x, toY(p.price), 3, 0, Math.PI * 2); ctx.fill();
-        });
-      }
-
-      // Time axis labels (up to 6 evenly spaced)
-      ctx.fillStyle = "#666"; ctx.font = "10px Arial"; ctx.textAlign = "center";
-      const step = Math.max(1, Math.floor(n / 6));
+      // Time labels (up to 5 evenly spaced)
+      ctx.fillStyle = "#888"; ctx.font = "9px Arial"; ctx.textAlign = "center";
+      const step = Math.max(1, Math.floor(n / 5));
       for (let i = 0; i < n; i += step) {
         const dt  = new Date(points[i].ts * 1000);
         const lbl = (dt.getMonth()+1) + "/" + dt.getDate() + " "
                   + dt.getHours().toString().padStart(2,"0") + ":"
                   + dt.getMinutes().toString().padStart(2,"0");
-        ctx.fillText(lbl, pad.left + i * slotW + slotW / 2, canvas.height - pad.bottom + 15);
+        ctx.fillText(lbl, pad.left + i * slotW + slotW / 2, canvas.height - pad.bottom + 12);
       }
 
       // Legend
-      ctx.font = "11px Arial"; ctx.textAlign = "left";
-      ctx.fillStyle = "#4CAF50"; ctx.fillText("● Price", pad.left, 16);
-      ctx.fillStyle = "rgba(33,150,243,0.7)"; ctx.fillText("■ Volume", pad.left + 65, 16);
-      if (labelSuffix) { ctx.fillStyle = "#999"; ctx.fillText(labelSuffix, pad.left + 145, 16); }
+      ctx.font = "9px Arial"; ctx.textAlign = "left";
+      ctx.fillStyle = "#26a69a"; ctx.fillText("▲", pad.left, 12);
+      ctx.fillStyle = "#ef5350"; ctx.fillText("▼", pad.left + 14, 12);
+      ctx.fillStyle = "#888";    ctx.fillText("candle", pad.left + 24, 12);
+      ctx.strokeStyle = "rgba(255,152,0,0.85)"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(pad.left + 66, 9); ctx.lineTo(pad.left + 78, 9); ctx.stroke();
+      ctx.fillStyle = "#ff9800"; ctx.fillText("close", pad.left + 80, 12);
+      if (labelSuffix) { ctx.fillStyle = "#bbb"; ctx.fillText(labelSuffix, pad.left + 114, 12); }
     }
 
     function renderOrderBook(book) {
@@ -1129,13 +1123,15 @@
       if (period === "live") {
         let trades = state.trades.filter(t => t.symbol === sym);
         trades = trades.slice(0, 100).reverse();
-        const points = trades.map(t => ({
-          price:  t.price || 0,
-          volume: t.quantity || t.qty || 0,
-          ts:     t.timestamp || Date.now() / 1000,
-        }));
-        drawChart(points, `${trades.length} trades`);
-        statusEl.textContent = trades.length ? `${trades.length} trades` : "No trades yet";
+        // Individual trades have no spread: treat each tick as o=h=l=c
+        const points = trades.map(t => {
+          const p = t.price || 0;
+          return { open: p, high: p, low: p, close: p,
+                   volume: t.quantity || t.qty || 0,
+                   ts: t.timestamp || Date.now() / 1000 };
+        });
+        drawChart(points, `${trades.length} ticks`);
+        statusEl.textContent = trades.length ? `${trades.length} ticks` : "No trades yet";
         return;
       }
 
@@ -1144,7 +1140,9 @@
         const r    = await fetch(`/history/${sym}?period=${period}`);
         const data = await r.json();
         const candles = data.candles || [];
-        const points = candles.map(c => ({ price: c.c, volume: c.v, ts: c.t }));
+        const points = candles.map(c => ({
+          open: c.o, high: c.h, low: c.l, close: c.c, volume: c.v, ts: c.t
+        }));
         drawChart(points, `${candles.length} candles`);
         statusEl.textContent = candles.length ? `${candles.length} candles` : "No data yet";
       } catch (e) {
