@@ -291,15 +291,6 @@
     </div>
 
     <div class="panel">
-      <h2>Trade Chart
-        <select id="chart-symbol" onchange="renderPriceChart()" style="margin-left:10px; padding:2px 5px;">
-          <option value="">All Symbols</option>
-        </select>
-      </h2>
-      <canvas id="price-chart" style="width:100%; flex-grow:1;"></canvas>
-    </div>
-
-    <div class="panel">
       <h2>Order Book
         <select id="bbo-symbol-select" onchange="renderOrderBookPanel()" style="margin-left:10px; padding:2px 5px;">
         </select>
@@ -337,16 +328,17 @@
 
   </div>
 
-  <!-- Price History panel (full width) -->
+  <!-- Unified Price Chart panel (full width) -->
   <div class="panel-full">
-    <h2>Price History
+    <h2>Price Chart
       <select id="history-symbol" onchange="loadHistory()" style="margin-left:10px; padding:2px 5px;">
         <option value="">Select symbol...</option>
       </select>
       <select id="history-period" onchange="loadHistory()" style="margin-left:5px; padding:2px 5px;">
+        <option value="live" selected>Live</option>
         <option value="1h">1 Hour</option>
         <option value="8h">8 Hours</option>
-        <option value="1d" selected>1 Day</option>
+        <option value="1d">1 Day</option>
         <option value="1w">1 Week</option>
         <option value="1m">1 Month</option>
       </select>
@@ -674,20 +666,6 @@
         renderOrderBookPanel();
       }
 
-      // Update chart symbol select
-      const chartSel = document.getElementById("chart-symbol");
-      const chartCurrent = chartSel.value;
-      const existingOpts = Array.from(chartSel.options).map(o => o.value);
-      symbols.forEach(sym => {
-        if (!existingOpts.includes(sym)) {
-          const opt = document.createElement("option");
-          opt.value = sym;
-          opt.textContent = sym;
-          chartSel.appendChild(opt);
-        }
-      });
-      if (chartCurrent) chartSel.value = chartCurrent;
-
       // Update history symbol select
       const histSel = document.getElementById("history-symbol");
       const histCurrent = histSel.value;
@@ -768,103 +746,113 @@
     // Alias for backward compatibility
     function renderFullBBO() { renderOrderBookPanel(); }
 
-    function renderPriceChart() {
-      const canvas = document.getElementById("price-chart");
-      const ctx = canvas.getContext("2d");
-      const selectedSymbol = document.getElementById("chart-symbol").value;
-
-      // Filter trades
-      let trades = state.trades.filter(t => !selectedSymbol || t.symbol === selectedSymbol);
-      trades = trades.slice(0, 100).reverse(); // Last 100, oldest first
-
-      if (trades.length === 0) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#666";
-        ctx.font = "14px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("No trade data available", canvas.width / 2, canvas.height / 2);
-        return;
-      }
-
-      // Set canvas size
-      canvas.width = canvas.offsetWidth || 400;
-      canvas.height = canvas.offsetHeight || 300;
-
-      const padding = { top: 20, right: 60, bottom: 50, left: 60 };
-      const chartWidth = canvas.width - padding.left - padding.right;
-      const chartHeight = canvas.height - padding.top - padding.bottom;
-
-      // Calculate ranges
-      const prices = trades.map(t => t.price);
-      const volumes = trades.map(t => t.quantity || t.qty || 0);
-      const minPrice = Math.min(...prices) * 0.995;
-      const maxPrice = Math.max(...prices) * 1.005;
-      const maxVolume = Math.max(...volumes);
+    // ── Unified price chart (live trades or OHLCV history) ─────────────────────
+    // points: [{price, volume, ts}]  – normalised by caller
+    function drawChart(points, labelSuffix) {
+      const canvas = document.getElementById("history-chart");
+      const ctx    = canvas.getContext("2d");
+      canvas.width  = canvas.offsetWidth || 900;
+      canvas.height = parseInt(canvas.style.height) || 350;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw grid
-      ctx.strokeStyle = "#eee";
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= 5; i++) {
-        const y = padding.top + (chartHeight * i / 5);
-        ctx.beginPath();
-        ctx.moveTo(padding.left, y);
-        ctx.lineTo(canvas.width - padding.right, y);
-        ctx.stroke();
+      if (!points || points.length === 0) {
+        ctx.fillStyle = "#999"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+        ctx.fillText("No data for this period", canvas.width / 2, canvas.height / 2);
+        return;
       }
 
-      // Draw volume bars
-      const barWidth = Math.max(2, chartWidth / trades.length - 2);
-      ctx.fillStyle = "rgba(33, 150, 243, 0.3)";
-      trades.forEach((t, i) => {
-        const x = padding.left + (i / trades.length) * chartWidth;
-        const vol = t.quantity || t.qty || 0;
-        const barHeight = maxVolume > 0 ? (vol / maxVolume) * (chartHeight * 0.3) : 0;
-        ctx.fillRect(x, canvas.height - padding.bottom - barHeight, barWidth, barHeight);
+      const pad = { top: 25, right: 20, bottom: 40, left: 65 };
+      const W  = canvas.width  - pad.left - pad.right;
+      const H  = canvas.height - pad.top  - pad.bottom;
+      const priceH = H * 0.72;
+      const gapH   = H * 0.03;
+      const volH   = H * 0.25;
+      const priceY = pad.top;
+      const volY   = pad.top + priceH + gapH;
+
+      const prices  = points.map(p => p.price);
+      const volumes = points.map(p => p.volume);
+      const minP = Math.min(...prices) * 0.997;
+      const maxP = Math.max(...prices) * 1.003;
+      const maxV = Math.max(...volumes, 1);
+
+      const toY = p => priceY + priceH - ((p - minP) / (maxP - minP)) * priceH;
+
+      // Grid lines
+      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = priceY + priceH * i / 5;
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(canvas.width - pad.right, y); ctx.stroke();
+        ctx.fillStyle = "#666"; ctx.font = "10px Arial"; ctx.textAlign = "right";
+        const p = maxP - (maxP - minP) * i / 5;
+        ctx.fillText(p.toFixed(2), pad.left - 5, y + 4);
+      }
+
+      // Volume / price area divider
+      ctx.strokeStyle = "#ddd";
+      ctx.beginPath(); ctx.moveTo(pad.left, volY); ctx.lineTo(canvas.width - pad.right, volY); ctx.stroke();
+
+      const n     = points.length;
+      const slotW = W / n;
+      const barW  = Math.max(2, Math.floor(slotW * 0.7));
+
+      // Volume bars
+      points.forEach((p, i) => {
+        const x  = pad.left + i * slotW + (slotW - barW) / 2;
+        const bh = (p.volume / maxV) * volH;
+        ctx.fillStyle = "rgba(33,150,243,0.35)";
+        ctx.fillRect(x, volY + volH - bh, barW, bh);
       });
 
-      // Draw price line
-      ctx.strokeStyle = "#4CAF50";
-      ctx.lineWidth = 2;
+      // Gradient fill under line
+      const grad = ctx.createLinearGradient(0, priceY, 0, priceY + priceH);
+      grad.addColorStop(0, "rgba(76,175,80,0.18)");
+      grad.addColorStop(1, "rgba(76,175,80,0)");
       ctx.beginPath();
-      trades.forEach((t, i) => {
-        const x = padding.left + (i / trades.length) * chartWidth + barWidth / 2;
-        const y = padding.top + chartHeight - ((t.price - minPrice) / (maxPrice - minPrice)) * chartHeight;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      ctx.moveTo(pad.left + slotW / 2, toY(points[0].price));
+      points.forEach((p, i) => ctx.lineTo(pad.left + i * slotW + slotW / 2, toY(p.price)));
+      ctx.lineTo(pad.left + (n - 1) * slotW + slotW / 2, priceY + priceH);
+      ctx.lineTo(pad.left + slotW / 2, priceY + priceH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Price line
+      ctx.strokeStyle = "#4CAF50"; ctx.lineWidth = 2;
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = pad.left + i * slotW + slotW / 2;
+        const y = toY(p.price);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
       ctx.stroke();
 
-      // Draw price points
-      ctx.fillStyle = "#4CAF50";
-      trades.forEach((t, i) => {
-        const x = padding.left + (i / trades.length) * chartWidth + barWidth / 2;
-        const y = padding.top + chartHeight - ((t.price - minPrice) / (maxPrice - minPrice)) * chartHeight;
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
+      // Dots (only when few points)
+      if (n <= 60) {
+        ctx.fillStyle = "#4CAF50";
+        points.forEach((p, i) => {
+          const x = pad.left + i * slotW + slotW / 2;
+          ctx.beginPath(); ctx.arc(x, toY(p.price), 3, 0, Math.PI * 2); ctx.fill();
+        });
+      }
 
-      // Y-axis labels (price)
-      ctx.fillStyle = "#333";
-      ctx.font = "11px Arial";
-      ctx.textAlign = "right";
-      for (let i = 0; i <= 5; i++) {
-        const price = minPrice + (maxPrice - minPrice) * (5 - i) / 5;
-        const y = padding.top + (chartHeight * i / 5);
-        ctx.fillText(price.toFixed(2), padding.left - 5, y + 4);
+      // Time axis labels (up to 6 evenly spaced)
+      ctx.fillStyle = "#666"; ctx.font = "10px Arial"; ctx.textAlign = "center";
+      const step = Math.max(1, Math.floor(n / 6));
+      for (let i = 0; i < n; i += step) {
+        const dt  = new Date(points[i].ts * 1000);
+        const lbl = (dt.getMonth()+1) + "/" + dt.getDate() + " "
+                  + dt.getHours().toString().padStart(2,"0") + ":"
+                  + dt.getMinutes().toString().padStart(2,"0");
+        ctx.fillText(lbl, pad.left + i * slotW + slotW / 2, canvas.height - pad.bottom + 15);
       }
 
       // Legend
-      ctx.font = "12px Arial";
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#4CAF50";
-      ctx.fillText("Price", padding.left, 12);
-      ctx.fillStyle = "rgba(33, 150, 243, 0.6)";
-      ctx.fillText("Volume", padding.left + 60, 12);
-      ctx.fillStyle = "#666";
-      ctx.fillText(`(${trades.length} trades${selectedSymbol ? " for " + selectedSymbol : ""})`, padding.left + 130, 12);
+      ctx.font = "11px Arial"; ctx.textAlign = "left";
+      ctx.fillStyle = "#4CAF50"; ctx.fillText("● Price", pad.left, 16);
+      ctx.fillStyle = "rgba(33,150,243,0.7)"; ctx.fillText("■ Volume", pad.left + 65, 16);
+      if (labelSuffix) { ctx.fillStyle = "#999"; ctx.fillText(labelSuffix, pad.left + 145, 16); }
     }
 
     function renderOrderBook(book) {
@@ -1000,7 +988,7 @@
         renderTrades();
         renderBBOs();
         renderStats();
-        renderPriceChart();
+        loadHistory();
       });
 
       eventSource.addEventListener("order", (e) => {
@@ -1016,7 +1004,7 @@
         if (state.trades.length > 200) state.trades.pop();
         renderTrades();
         renderStats();
-        renderPriceChart();
+        if (document.getElementById("history-period").value === "live") loadHistory();
       });
 
       eventSource.addEventListener("snapshot", (e) => {
@@ -1052,7 +1040,7 @@
         renderTrades();
         renderBBOs();
         renderStats();
-        renderPriceChart();
+        loadHistory();
       } catch (e) {
         console.error("Fetch data failed:", e);
       }
@@ -1137,109 +1125,31 @@
       const period = document.getElementById("history-period").value;
       const statusEl = document.getElementById("history-status");
       if (!sym) return;
+
+      if (period === "live") {
+        let trades = state.trades.filter(t => t.symbol === sym);
+        trades = trades.slice(0, 100).reverse();
+        const points = trades.map(t => ({
+          price:  t.price || 0,
+          volume: t.quantity || t.qty || 0,
+          ts:     t.timestamp || Date.now() / 1000,
+        }));
+        drawChart(points, `${trades.length} trades`);
+        statusEl.textContent = trades.length ? `${trades.length} trades` : "No trades yet";
+        return;
+      }
+
       statusEl.textContent = "Loading...";
       try {
         const r    = await fetch(`/history/${sym}?period=${period}`);
         const data = await r.json();
-        drawHistoryChart(data.candles || []);
-        statusEl.textContent = (data.candles && data.candles.length)
-          ? `${data.candles.length} candles`
-          : "No data yet";
+        const candles = data.candles || [];
+        const points = candles.map(c => ({ price: c.c, volume: c.v, ts: c.t }));
+        drawChart(points, `${candles.length} candles`);
+        statusEl.textContent = candles.length ? `${candles.length} candles` : "No data yet";
       } catch (e) {
         statusEl.textContent = "Error: " + e.message;
       }
-    }
-
-    function drawHistoryChart(candles) {
-      const canvas = document.getElementById("history-chart");
-      const ctx    = canvas.getContext("2d");
-      canvas.width  = canvas.offsetWidth || 900;
-      canvas.height = 350;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (!candles || candles.length === 0) {
-        ctx.fillStyle = "#999";
-        ctx.font = "14px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("No history data for this period", canvas.width / 2, canvas.height / 2);
-        return;
-      }
-
-      const pad    = { top: 25, right: 20, bottom: 40, left: 65 };
-      const W      = canvas.width  - pad.left - pad.right;
-      const H      = canvas.height - pad.top  - pad.bottom;
-      const priceH = H * 0.70;
-      const gapH   = H * 0.05;
-      const volH   = H * 0.25;
-      const priceY = pad.top;
-      const volY   = pad.top + priceH + gapH;
-
-      const maxP = Math.max(...candles.map(c => c.h)) * 1.002;
-      const minP = Math.min(...candles.map(c => c.l)) * 0.998;
-      const maxV = Math.max(...candles.map(c => c.v), 1);
-
-      // Price grid lines
-      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
-      for (let i = 0; i <= 5; i++) {
-        const y = priceY + (priceH * i / 5);
-        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(canvas.width - pad.right, y); ctx.stroke();
-        const p = maxP - (maxP - minP) * i / 5;
-        ctx.fillStyle = "#666"; ctx.font = "10px Arial"; ctx.textAlign = "right";
-        ctx.fillText(p.toFixed(2), pad.left - 5, y + 4);
-      }
-
-      // Divider between price and volume areas
-      ctx.strokeStyle = "#ddd"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(pad.left, volY); ctx.lineTo(canvas.width - pad.right, volY); ctx.stroke();
-
-      const n     = candles.length;
-      const slotW = W / n;
-      const barW  = Math.max(1, Math.floor(slotW * 0.7));
-
-      candles.forEach((c, i) => {
-        const x     = pad.left + i * slotW + (slotW - barW) / 2;
-        const isUp  = c.c >= c.o;
-        const color = isUp ? "#26a69a" : "#ef5350";
-        const toY   = p => priceY + priceH - ((p - minP) / (maxP - minP)) * priceH;
-
-        // Wick
-        const midX = x + barW / 2;
-        ctx.strokeStyle = color; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(midX, toY(c.h)); ctx.lineTo(midX, toY(c.l)); ctx.stroke();
-
-        // Candle body
-        const bodyTop = Math.min(toY(c.o), toY(c.c));
-        const bodyH   = Math.max(1, Math.abs(toY(c.c) - toY(c.o)));
-        ctx.fillStyle = color;
-        ctx.fillRect(x, bodyTop, barW, bodyH);
-
-        // Volume bar
-        const vH = (c.v / maxV) * volH;
-        ctx.fillStyle = isUp ? "rgba(38,166,154,0.5)" : "rgba(239,83,80,0.5)";
-        ctx.fillRect(x, volY + volH - vH, barW, vH);
-      });
-
-      // Time axis labels (up to 6 evenly spaced)
-      ctx.fillStyle = "#666"; ctx.font = "10px Arial"; ctx.textAlign = "center";
-      const step = Math.max(1, Math.floor(n / 6));
-      for (let i = 0; i < n; i += step) {
-        const dt  = new Date(candles[i].t * 1000);
-        const lbl = (dt.getMonth()+1) + "/" + dt.getDate() + " "
-                  + dt.getHours().toString().padStart(2,"0") + ":"
-                  + dt.getMinutes().toString().padStart(2,"0");
-        const x = pad.left + i * slotW + slotW / 2;
-        ctx.fillText(lbl, x, canvas.height - pad.bottom + 15);
-      }
-
-      // VOL label rotated
-      ctx.save();
-      ctx.translate(10, volY + volH / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#aaa"; ctx.font = "9px Arial";
-      ctx.fillText("VOL", 0, 0);
-      ctx.restore();
     }
 
     // Initial load: fetch data via REST, then connect SSE
