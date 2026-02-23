@@ -140,10 +140,17 @@
     }
     .btn-start { background: #28a745; color: #fff; }
     .btn-start:hover { background: #218838; }
+    .btn-suspend { background: #607d8b; color: #fff; }
+    .btn-suspend:hover { background: #455a64; }
+    .btn-resume { background: #4caf50; color: #fff; }
+    .btn-resume:hover { background: #388e3c; }
     .btn-end { background: #ff9800; color: #fff; }
     .btn-end:hover { background: #e68900; }
+    .btn-day:disabled { background: #ccc !important; color: #999; cursor: not-allowed; }
     .status.active { background: #d4edda; color: #155724; }
     .status.active .dot { background: #28a745; }
+    .status.suspended { background: #fff3cd; color: #856404; }
+    .status.suspended .dot { background: #ffc107; animation: pulse 1s infinite; }
     .status.idle { background: #e8e8e8; color: #666; }
     .status.idle .dot { background: #9e9e9e; }
 
@@ -191,6 +198,7 @@
     <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting...</span></span>
     <span id="session-badge" class="status idle"><span class="dot"></span><span id="session-text">IDLE</span></span>
     <button onclick="startDay()" class="btn-day btn-start">Start of Day</button>
+    <button id="suspend-btn" onclick="toggleSuspend()" class="btn-day btn-suspend" disabled>Suspend</button>
     <button onclick="endDay()" class="btn-day btn-end">End of Day</button>
     <a href="/fix/" style="margin-left:auto; padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">FIX UI</a>
   </h1>
@@ -1018,7 +1026,9 @@
 
       eventSource.addEventListener("session", (e) => {
         const data = JSON.parse(e.data);
-        updateSessionBadge(data.status === "started");
+        const active = data.status === "started" || data.status === "active" || data.status === "suspended";
+        const suspended = data.status === "suspended";
+        updateSessionBadge(active, suspended);
       });
 
       eventSource.onerror = () => {
@@ -1050,11 +1060,43 @@
 
     // ── Session control ────────────────────────────────────────────────────────
 
-    function updateSessionBadge(active) {
+    let _sessionSuspended = false;
+
+    function updateSessionBadge(active, suspended) {
       const badge = document.getElementById("session-badge");
       const text  = document.getElementById("session-text");
-      badge.className = "status " + (active ? "active" : "idle");
-      text.textContent = active ? "ACTIVE" : "IDLE";
+      const btn   = document.getElementById("suspend-btn");
+      _sessionSuspended = !!suspended;
+      if (!active) {
+        badge.className = "status idle";
+        text.textContent = "IDLE";
+        btn.disabled = true;
+        btn.textContent = "Suspend";
+        btn.className = "btn-day btn-suspend";
+      } else if (suspended) {
+        badge.className = "status suspended";
+        text.textContent = "PAUSED";
+        btn.disabled = false;
+        btn.textContent = "Resume";
+        btn.className = "btn-day btn-resume";
+      } else {
+        badge.className = "status active";
+        text.textContent = "ACTIVE";
+        btn.disabled = false;
+        btn.textContent = "Suspend";
+        btn.className = "btn-day btn-suspend";
+      }
+    }
+
+    async function toggleSuspend() {
+      try {
+        const url = _sessionSuspended ? "/session/resume" : "/session/suspend";
+        const r = await fetch(url, { method: "POST" });
+        const result = await r.json();
+        if (result.status !== "ok") alert("Error: " + (result.error || "Unknown error"));
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
     }
 
     async function startDay() {
@@ -1063,7 +1105,7 @@
         const r = await fetch("/session/start", { method: "POST" });
         const result = await r.json();
         if (result.status === "ok") {
-          updateSessionBadge(true);
+          updateSessionBadge(true, false);
         } else {
           alert("Error: " + (result.error || "Unknown error"));
         }
@@ -1078,7 +1120,7 @@
         const r = await fetch("/session/end", { method: "POST" });
         const result = await r.json();
         if (result.status === "ok") {
-          updateSessionBadge(false);
+          updateSessionBadge(false, false);
           alert("Day ended. Closing prices saved.");
         } else {
           alert("Error: " + (result.error || "Unknown error"));
