@@ -12,6 +12,7 @@ ORDER_INTERVAL = 60.0 / Config.ORDERS_PER_MIN
 # Module-level state (shared with control listener thread)
 _securities = {}
 _running = True
+_suspended = False
 
 
 def load_securities():
@@ -68,14 +69,15 @@ def make_snapshot(symbol, best_bid, best_ask, bid_size, ask_size):
 
 
 def listen_control(ctrl_consumer):
-    """Background thread: listen for start/stop control messages."""
-    global _running, _securities
+    """Background thread: listen for start/stop/suspend/resume control messages."""
+    global _running, _suspended, _securities
     print("[MDF] Control listener started")
     for msg in ctrl_consumer:
         action = (msg.value or {}).get("action")
         if action == "stop":
             _running = False
-            print("[MDF] STOP signal received – pausing simulation")
+            _suspended = False
+            print("[MDF] STOP signal received – simulation stopped")
         elif action == "start":
             try:
                 new_secs = load_securities()
@@ -84,8 +86,15 @@ def listen_control(ctrl_consumer):
                 print(f"[MDF] START signal – reloaded securities: {list(_securities.keys())}")
             except Exception as e:
                 print(f"[MDF] Error reloading securities on start: {e}")
+            _suspended = False
             _running = True
-            print("[MDF] Simulation resumed")
+            print("[MDF] Simulation started")
+        elif action == "suspend":
+            _suspended = True
+            print("[MDF] SUSPEND signal received – order generation paused")
+        elif action == "resume":
+            _suspended = False
+            print("[MDF] RESUME signal received – order generation resumed")
 
 
 if __name__ == "__main__":
@@ -112,12 +121,12 @@ if __name__ == "__main__":
 
     try:
         while True:
-            if not _running:
+            if not _running or _suspended:
                 time.sleep(0.5)
                 continue
 
             for sym, vals in list(_securities.items()):
-                if not _running:
+                if not _running or _suspended:
                     break
 
                 mid = vals["current"]

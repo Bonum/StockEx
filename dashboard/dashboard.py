@@ -20,7 +20,7 @@ sse_clients = []
 sse_clients_lock = threading.Lock()
 
 # Session state
-session_state = {"active": False, "start_time": None}
+session_state = {"active": False, "start_time": None, "suspended": False}
 
 # ── OHLCV History ──────────────────────────────────────────────────────────────
 HISTORY_DB = os.getenv("HISTORY_DB", "/app/data/dashboard_history.db")
@@ -305,6 +305,7 @@ def session_start():
         p.flush()
 
         session_state["active"] = True
+        session_state["suspended"] = False
         session_state["start_time"] = time.time()
         broadcast_event("session", {"status": "started", "time": session_state["start_time"]})
         return jsonify({"status": "ok", "message": "Day started"})
@@ -338,8 +339,39 @@ def session_end():
         p.flush()
 
         session_state["active"] = False
+        session_state["suspended"] = False
         broadcast_event("session", {"status": "ended", "time": time.time()})
         return jsonify({"status": "ok", "message": "Day ended, closing prices saved"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/session/suspend", methods=["POST"])
+def session_suspend():
+    try:
+        if not session_state["active"]:
+            return jsonify({"status": "error", "error": "No active session"}), 400
+        p = get_producer()
+        p.send(Config.CONTROL_TOPIC, {"action": "suspend"})
+        p.flush()
+        session_state["suspended"] = True
+        broadcast_event("session", {"status": "suspended"})
+        return jsonify({"status": "ok", "message": "Session suspended"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/session/resume", methods=["POST"])
+def session_resume():
+    try:
+        if not session_state["active"]:
+            return jsonify({"status": "error", "error": "No active session"}), 400
+        p = get_producer()
+        p.send(Config.CONTROL_TOPIC, {"action": "resume"})
+        p.flush()
+        session_state["suspended"] = False
+        broadcast_event("session", {"status": "active"})
+        return jsonify({"status": "ok", "message": "Session resumed"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -404,7 +436,13 @@ def stream():
                     f"{json.dumps({'orders': list(orders), 'bbos': dict(bbos), 'trades': list(trades_cache)})}\n\n"
                 )
             # Also send current session state
-            yield f"event: session\ndata: {json.dumps({'status': 'started' if session_state['active'] else 'ended'})}\n\n"
+            if not session_state["active"]:
+                _sess_status = "ended"
+            elif session_state["suspended"]:
+                _sess_status = "suspended"
+            else:
+                _sess_status = "started"
+            yield f"event: session\ndata: {json.dumps({'status': _sess_status})}\n\n"
             while True:
                 try:
                     message = q.get(timeout=30)
