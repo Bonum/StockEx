@@ -42,6 +42,22 @@
     .status.disconnected { background: #f8d7da; color: #721c24; }
     .status.disconnected .dot { background: #dc3545; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .status.connecting { background: #fff3cd; color: #856404; }
+    .status.connecting .dot { background: #ffc107; animation: pulse 1s infinite; }
+
+    /* Reconnect button */
+    .btn-reconnect {
+      padding: 4px 12px;
+      background: #ff9800;
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: bold;
+      display: none;
+    }
+    .btn-reconnect:hover { background: #e68900; }
 
     /* Order form grid */
     .order-grid {
@@ -93,7 +109,6 @@
     .bid { color: #2e7d32; font-weight: bold; }
     .ask { color: #c62828; font-weight: bold; }
 
-    /* Highlight animation for new rows */
     @keyframes highlight { from { background: #c8e6c9; } to { background: transparent; } }
     .new-row { animation: highlight 2s ease-out; }
 
@@ -104,13 +119,14 @@
 
   <h1>
     Order Entry
-    <span id="status-badge" class="status connected">
+    <span id="status-badge" class="status connecting">
       <span class="dot"></span>
-      <span id="status-text">Live</span>
+      <span id="status-text">Connecting...</span>
     </span>
+    <button id="reconnect-btn" class="btn-reconnect" onclick="reconnect()">Reconnect</button>
   </h1>
 
-  <!-- Order Entry (full width) -->
+  <!-- Order Entry -->
   <div class="panel">
     <h2>Place Order</h2>
     <form id="orderForm" onsubmit="sendOrder(event)">
@@ -121,7 +137,9 @@
         </div>
         <div class="form-group">
           <label>Symbol</label>
-          <input name="symbol" value="FOO">
+          <select id="symbol-select" name="symbol">
+            <option value="">Loading...</option>
+          </select>
         </div>
         <div class="form-group">
           <label>Side</label>
@@ -193,6 +211,33 @@
   </div>
 
   <script>
+    let pollInterval = null;
+
+    function setStatus(cls, text) {
+      const badge = document.getElementById('status-badge');
+      const btn   = document.getElementById('reconnect-btn');
+      badge.className = 'status ' + cls;
+      document.getElementById('status-text').textContent = text;
+      btn.style.display = (cls === 'disconnected') ? 'inline-block' : 'none';
+    }
+
+    async function loadSecurities() {
+      try {
+        const r = await fetch('/securities');
+        const symbols = await r.json();
+        const sel = document.getElementById('symbol-select');
+        sel.innerHTML = '';
+        symbols.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          sel.appendChild(opt);
+        });
+      } catch(e) {
+        console.warn('Could not load securities:', e);
+      }
+    }
+
     async function sendOrder(evt) {
       evt.preventDefault();
       const form = document.getElementById('orderForm');
@@ -278,25 +323,20 @@
 
     async function loadBook() {
       const now = new Date().toLocaleTimeString();
-      const badge = document.getElementById('status-badge');
-
       try {
         const r = await fetch('/book');
         const b = await r.json();
         renderBook(b);
         document.getElementById('book-updated').textContent = 'Updated: ' + now;
-        badge.className = 'status connected';
-        document.getElementById('status-text').textContent = 'Live';
+        setStatus('connected', 'Live');
       } catch(e) {
         document.getElementById('book-body').innerHTML =
           '<tr><td colspan="4" style="color:red; text-align:center;">Error loading book</td></tr>';
-        badge.className = 'status disconnected';
-        document.getElementById('status-text').textContent = 'Disconnected';
+        setStatus('disconnected', 'Disconnected');
       }
-
       try {
         const r2 = await fetch('/trades');
-        const t  = await r2.json();
+        const t   = await r2.json();
         renderTrades(Array.isArray(t) ? t : (t.trades || []));
         document.getElementById('trades-updated').textContent = 'Updated: ' + now;
       } catch(e) {
@@ -305,8 +345,18 @@
       }
     }
 
-    setInterval(loadBook, 2000);
-    window.onload = loadBook;
+    function reconnect() {
+      setStatus('connecting', 'Connecting...');
+      loadBook();
+    }
+
+    async function init() {
+      await loadSecurities();
+      await loadBook();
+      pollInterval = setInterval(loadBook, 2000);
+    }
+
+    window.onload = init;
   </script>
 </body>
 </html>

@@ -144,13 +144,26 @@ def stop_fix():
         log("🪫 FIX initiator stopped")
         fix_initiator = None
 
+def load_securities():
+    symbols = []
+    try:
+        with open(Config.SECURITIES_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    symbols.append(line.split('\t')[0])
+    except Exception:
+        pass
+    return symbols or ["ALPHA", "PEIR", "EXAE", "QUEST", "NBG"]
+
 # --- Flask routes ---
 @app.route("/")
 def index():
     with _msgs_lock:
         msgs = list(reversed(_messages))   # newest first
     connected = bool(fix_app and fix_app.connected)
-    return render_template("index.html", messages=msgs, connected=connected)
+    return render_template("index.html", messages=msgs, connected=connected,
+                           securities=load_securities())
 
 @app.route("/status")
 def status():

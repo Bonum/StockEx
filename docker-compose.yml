@@ -57,6 +57,7 @@ services:
       - "5000:5000"
     volumes:
       - ./shared:/app/shared
+      - ./shared_data:/app/data
     environment:
       - MATCHER_URL=http://matcher:6000
 
