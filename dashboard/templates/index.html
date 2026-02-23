@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Trading Dashboard</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
@@ -153,6 +154,34 @@
       padding: 10px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       margin-top: 20px;
+    }
+
+    /* ── Mobile responsive ───────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      body { margin: 10px; }
+      h1 { font-size: 18px; flex-wrap: wrap; gap: 8px; }
+      /* FIX UI link: don't push to far right, wrap naturally */
+      h1 a { margin-left: 0 !important; }
+      .container { grid-template-columns: 1fr; }
+      .panel { height: 300px; }
+      /* Allow tables to scroll horizontally inside panels */
+      .panel > div { overflow-x: auto; }
+      .ticker-item { font-size: 11px; padding: 0 10px; }
+      #history-chart { height: 220px !important; }
+      /* Modal: full width on small screens */
+      #order-modal > div {
+        width: 90% !important;
+        min-width: unset !important;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body { margin: 6px; }
+      h1 { font-size: 14px; }
+      table { font-size: 11px; }
+      th, td { padding: 3px 2px; }
+      .btn-day { font-size: 10px; padding: 3px 8px; }
+      .status { font-size: 10px; padding: 3px 8px; }
     }
   </style>
 </head>
