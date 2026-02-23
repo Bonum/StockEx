@@ -1,0 +1,58 @@
+# HuggingFace Spaces – StockEx Trading Demo
+# Single container: Kafka (KRaft) + Matcher + MD Feeder + Dashboard
+
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+# Limit Kafka JVM heap to fit free-tier RAM
+ENV KAFKA_HEAP_OPTS="-Xmx400m -Xms256m"
+
+# Install Java (required by Kafka) + wget
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      default-jre-headless \
+      wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download Apache Kafka 3.7.0 (KRaft mode – no ZooKeeper needed)
+ARG KAFKA_VERSION=3.7.0
+RUN wget -q \
+      "https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz" \
+      -O /tmp/kafka.tgz \
+    && tar -xzf /tmp/kafka.tgz -C /opt \
+    && mv /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka \
+    && rm /tmp/kafka.tgz
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+      kafka-python==2.0.2 \
+      Flask==2.2.5 \
+      requests==2.31.0
+
+# ── Application code (flat layout matching /app container paths) ──────────────
+WORKDIR /app
+
+COPY shared/                          /app/shared/
+COPY shared_data/securities.txt       /app/data/securities.txt
+
+# Matcher service
+COPY matcher/matcher.py               /app/matcher.py
+COPY matcher/database.py              /app/database.py
+
+# MD Feeder service
+COPY md_feeder/mdf_simulator.py       /app/mdf_simulator.py
+
+# Dashboard service
+COPY dashboard/dashboard.py           /app/dashboard.py
+COPY dashboard/templates/             /app/templates/
+
+# ── Kafka KRaft configuration ─────────────────────────────────────────────────
+COPY kafka-kraft.properties           /opt/kafka/config/kraft/server.properties
+
+# ── Startup script ────────────────────────────────────────────────────────────
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 7860
+
+CMD ["/entrypoint.sh"]
