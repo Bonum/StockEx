@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Trading Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
+    h2 { margin: 5px 0; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 20px; }
+    .panel {
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      height: 400px;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel pre {
+      flex-grow: 1;
+      overflow-y: scroll;
+      background: #fafafa;
+      padding: 10px;
+      margin: 0;
+      border-radius: 6px;
+      font-size: 13px;
+      white-space: pre;
+      font-family: monospace;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+    }
+    .updated {
+      animation: flash 1s ease-in-out;
+    }
+    @keyframes flash {
+      from { background: yellow; }
+      to   { background: transparent; }
+    }
+  </style>
+</head>
+<body>
+  <h1>📊 Trading Dashboard</h1>
+  <div class="container">
+    <div class="panel">
+      <h2>📝 Orders</h2>
+      <pre id="orders"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>💹 BBOs (from Order Book API)</h2>
+      <pre id="book"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>🤝 Trades</h2>
+      <pre id="trades"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>📖 Full Order Book</h2>
+      <label for="symbol-select">Select symbol:</label>
+      <select id="symbol-select" onchange="refresh()"></select>
+      <div id="full-book" style="flex-grow:1; overflow-y:scroll;"></div>
+    </div>
+
+    <div class="panel">
+      <h2>📊 Market Snapshots (BBO)</h2>
+      <table id="bbos-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Best Bid</th>
+            <th>Best Ask</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody id="bbos-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    function fmtOrder(o) {
+      const sym = o.symbol ?? "?";
+      const side = o.type ?? o.side ?? "?";
+      const price = o.price !== undefined ? Number(o.price).toFixed(2) : "?";
+      const qty = o.quantity ?? o.qty ?? "?";
+      return `${sym} | ${side} | ${qty} @ ${price}\n`;
+    }
+
+    function fmtTrade(t) {
+      const sym = (t.symbol ?? "?").padEnd(6);
+      const qty = String(t.quantity ?? t.qty ?? "-").padStart(6);
+      const price = t.price !== undefined ? Number(t.price).toFixed(2).padStart(8) : "   -   ";
+      const ts = t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString() : "-";
+      return `${sym} | ${qty} x ${price} | ${ts}\n`;
+    }
+
+    function renderOrderBook(book) {
+      const bids = (book.buy || []).sort((a,b) => b.price - a.price);
+      const asks = (book.sell || []).sort((a,b) => a.price - b.price);
+      const maxRows = Math.max(bids.length, asks.length);
+      let html = "<table><tr><th>Bid Size</th><th>Bid Price</th><th>Ask Price</th><th>Ask Size</th></tr>";
+      for (let i=0; i<maxRows; i++) {
+        const b = bids[i] || {};
+        const a = asks[i] || {};
+        html += `<tr>
+          <td>${b.quantity ?? ""}</td>
+          <td>${b.price !== undefined ? Number(b.price).toFixed(2) : ""}</td>
+          <td>${a.price !== undefined ? Number(a.price).toFixed(2) : ""}</td>
+          <td>${a.quantity ?? ""}</td>
+        </tr>`;
+      }
+      html += "</table>";
+      return html;
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch("/data");
+        const data = await r.json();
+
+        // Orders
+        document.getElementById("orders").textContent =
+          data.orders.slice().reverse().map(fmtOrder).join("");
+
+        // Trades
+        document.getElementById("trades").textContent =
+          data.trades.slice().reverse().map(fmtTrade).join("");
+
+        // Book JSON dump
+        document.getElementById("book").textContent =
+          JSON.stringify(data.book, null, 2);
+
+        // Snapshots → fill table
+        const tbody = document.getElementById("bbos-body");
+        tbody.innerHTML = "";
+        for (const [symbol, snap] of Object.entries(data.bbos)) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${symbol}</td>
+            <td>${snap.best_bid !== null ? Number(snap.best_bid).toFixed(2) : "-"}</td>
+            <td>${snap.best_ask !== null ? Number(snap.best_ask).toFixed(2) : "-"}</td>
+            <td>${snap.timestamp ? new Date(snap.timestamp*1000).toLocaleTimeString() : "-"}</td>
+          `;
+          row.classList.add("updated");
+          setTimeout(() => row.classList.remove("updated"), 1000);
+          tbody.appendChild(row);
+        }
+
+        // Populate dropdown once
+        const sel = document.getElementById("symbol-select");
+        if (!sel.options.length) {
+          const symbols = [...new Set([
+            ...Object.keys(data.bbos),
+            ...(data.book.buy || []).map(o => o.symbol),
+            ...(data.book.sell || []).map(o => o.symbol)
+          ])];
+          symbols.forEach(sym => {
+            const opt = document.createElement("option");
+            opt.value = sym;
+            opt.textContent = sym;
+            sel.appendChild(opt);
+          });
+        }
+
+        // Render order book for selected symbol
+        const sym = sel.value;
+        if (sym) {
+          const bookForSymbol = {
+            buy: (data.book.buy || []).filter(o => o.symbol === sym),
+            sell: (data.book.sell || []).filter(o => o.symbol === sym),
+          };
+          document.getElementById("full-book").innerHTML = renderOrderBook(bookForSymbol);
+        }
+
+      } catch(e) {
+        console.error("Refresh error", e);
+      }
+    }
+
+    setInterval(refresh, 2000);
+    refresh();
+  </script>
+</body>
+</html>

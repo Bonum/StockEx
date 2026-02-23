@@ -1,0 +1,164 @@
+﻿
+services:
+  # Build-only base image
+  fix-base:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+    image: fix-base
+    # No need to run a container for base
+    deploy:
+      replicas: 0
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"   # for containers & optionally host
+      - "29092:29092" # for host access
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  matcher:
+    build: ./matcher
+    container_name: matcher
+    depends_on:
+      - kafka
+    ports:
+      - "6000:6000"
+    volumes:
+      - ./shared:/app/shared
+      - matcher_data:/app/data  # SQLite database persistence
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    depends_on:
+      - matcher
+      - kafka
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./shared:/app/shared
+    environment:
+      - MATCHER_URL=http://matcher:6000
+
+  consumer:
+    build: ./consumer
+    container_name: consumer
+    depends_on:
+      - kafka
+    volumes:
+      - ./shared:/app/shared
+
+  md_feeder:
+    build:
+      context: ./md_feeder
+      dockerfile: Dockerfile
+    volumes:
+      - ./shared_data:/app/data   # shared volume for global order IDs
+      - ./shared:/app/shared
+
+  oeg:
+    build: ./oeg
+    container_name: oeg
+    environment:
+      - FRONTEND_URL=http://frontend:5000
+    command: ["python","oeg_simulator.py"]
+    depends_on:
+      - frontend
+    networks:
+      - default
+
+  fix_oeg:
+    build: ./fix_oeg
+    container_name: fix_oeg
+    depends_on:
+      - kafka
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - default
+
+  snapshot_viewer:
+    build: ./snapshot_viewer
+    #dockerfile: snapshot_viewer/Dockerfile
+    volumes:
+      - ./logs:/app/logs   # logs will appear in ./logs folder on your host
+      - ./shared:/app/shared
+    depends_on:
+      - kafka
+      - md_feeder
+    networks:
+      - default
+          
+  fix-ui-client-1:
+    build:
+      context: ./fix-ui-client
+    container_name: fix-ui-client-1
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./fix-ui-client/client1.cfg:/app/client.cfg
+      - ./fix-ui-client/log:/app/log
+      - ./fix-ui-client/store:/app/store
+      - ./shared_data:/app/data   # shared volume for global order IDs
+      - ./shared:/app/shared
+    environment:
+      FIX_CFG: client.cfg
+    depends_on:
+      - fix_oeg
+
+  fix-ui-client-2:
+    build:
+      context: ./fix-ui-client
+    container_name: fix-ui-client-2
+    ports:
+      - "5003:5002"
+    volumes:
+      - ./fix-ui-client/client2.cfg:/app/client.cfg
+      - ./fix-ui-client/log:/app/log
+      - ./fix-ui-client/store:/app/store
+      - ./shared_data:/app/data   # shared volume for global order IDs
+      - ./shared:/app/shared
+    environment:
+      FIX_CFG: client.cfg
+    depends_on:
+      - fix_oeg
+
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: dashboard
+    ports:
+      - "5005:5000"
+    volumes:
+      - ./dashboard:/app
+      - ./shared:/app/shared
+    depends_on:
+      - kafka
+      - matcher
+    environment:
+      - MATCHER_URL=http://matcher:6000
+
+volumes:
+  matcher_data:  # Persists SQLite database across container restarts
