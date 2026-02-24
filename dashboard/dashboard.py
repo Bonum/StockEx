@@ -389,7 +389,7 @@ def schedule_runner():
                     if now >= end_t and session_state["active"]:
                         print("[Scheduler] Auto end of day")
                         _do_session_end()
-                    elif now >= start_t and not session_state["active"]:
+                    elif start_t <= now < end_t and not session_state["active"]:
                         print("[Scheduler] Auto start of day")
                         _do_session_start()
         except Exception as e:
