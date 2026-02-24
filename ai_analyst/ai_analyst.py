@@ -138,9 +138,21 @@ In 3–4 sentences analyse: activity level, notable price moves or volume spikes
 Be specific and data-driven. No headers, no bullet points, plain prose only."""
 
 
+def run_immediate_analysis(producer):
+    """Called on-demand (button click). Skips the interval check."""
+    print("[AI-Analyst] On-demand analysis triggered")
+    prompt = build_prompt()
+    text   = call_llm(prompt)
+    if text:
+        insight = {"text": text, "timestamp": time.time()}
+        producer.send(Config.AI_INSIGHTS_TOPIC, insight)
+        producer.flush()
+        print(f"[AI-Analyst] On-demand insight published ({len(text)} chars)")
+
+
 # ── Kafka consumer (market data) ──────────────────────────────────────────────
 
-def consume_market_data():
+def consume_market_data(producer):
     global _running, _suspended
     consumer = create_consumer(
         topics=[
@@ -162,16 +174,18 @@ def consume_market_data():
                 if sym:
                     latest_snapshots[sym] = snap
             elif msg.topic == Config.CONTROL_TOPIC:
-                cmd = msg.value.get("command", "")
-                if cmd == "start":
+                action = msg.value.get("action", "")
+                if action == "start":
                     _running   = True
                     _suspended = False
-                elif cmd in ("end", "stop"):
+                elif action in ("end", "stop"):
                     _running   = False
-                elif cmd == "suspend":
+                elif action == "suspend":
                     _suspended = True
-                elif cmd == "resume":
+                elif action == "resume":
                     _suspended = False
+                elif action == "generate_insight":
+                    threading.Thread(target=run_immediate_analysis, args=(producer,), daemon=True).start()
 
 
 # ── Analysis loop ──────────────────────────────────────────────────────────────
@@ -208,5 +222,5 @@ def analysis_loop(producer):
 
 if __name__ == "__main__":
     producer = create_producer(component_name="AI-Analyst")
-    threading.Thread(target=consume_market_data, daemon=True).start()
+    threading.Thread(target=consume_market_data, args=(producer,), daemon=True).start()
     analysis_loop(producer)

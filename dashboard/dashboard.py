@@ -447,6 +447,17 @@ def session_resume():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+@app.route("/session/ai_insight", methods=["POST"])
+def trigger_ai_insight():
+    try:
+        p = get_producer()
+        p.send(Config.CONTROL_TOPIC, {"action": "generate_insight"})
+        p.flush()
+        return jsonify({"status": "ok", "message": "Insight generation triggered"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 @app.route("/session/mode", methods=["POST"])
 def session_mode():
     try:

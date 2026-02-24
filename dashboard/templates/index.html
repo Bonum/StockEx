@@ -380,8 +380,12 @@
   <div class="ai-panel">
     <h2 style="margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:10px;">
       AI Analyst
-      <span id="ai-model-badge" style="font-size:10px; color:#fff; background:#5c6bc0; padding:2px 8px; border-radius:10px; font-weight:normal;"></span>
-      <span id="ai-status" style="font-size:11px; color:#999; font-weight:normal; margin-left:4px;">waiting for first insight…</span>
+      <button id="ai-generate-btn" onclick="triggerAIInsight()"
+              style="padding:3px 12px; background:#5c6bc0; color:#fff; border:none; border-radius:12px;
+                     font-size:11px; font-weight:bold; cursor:pointer;">
+        Generate Now
+      </button>
+      <span id="ai-status" style="font-size:11px; color:#999; font-weight:normal;">waiting for first insight…</span>
     </h2>
     <div id="ai-insights-list" style="max-height:220px; overflow-y:auto;">
       <div class="insight-card" style="color:#bbb; border-left-color:#ddd; background:#fafafa;" id="ai-placeholder">
@@ -427,6 +431,21 @@
 
     // Selected order state
     let selectedOrder = null;
+
+    async function triggerAIInsight() {
+      const btn = document.getElementById("ai-generate-btn");
+      btn.disabled = true;
+      btn.textContent = "Generating…";
+      document.getElementById("ai-status").textContent = "generating insight…";
+      try {
+        await fetch("/session/ai_insight", { method: "POST" });
+      } catch(e) {}
+      // Re-enable after 10s (LLM needs time)
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = "Generate Now";
+      }, 10000);
+    }
 
     function addInsight(insight) {
       const list = document.getElementById("ai-insights-list");
@@ -1096,6 +1115,9 @@
         addInsight(insight);
         document.getElementById("ai-status").textContent =
           "Last update: " + new Date().toLocaleTimeString();
+        const btn = document.getElementById("ai-generate-btn");
+        btn.disabled = false;
+        btn.textContent = "Generate Now";
       });
 
       eventSource.onerror = () => {
