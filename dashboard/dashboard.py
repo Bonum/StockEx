@@ -22,7 +22,7 @@ sse_clients_lock = threading.Lock()
 # Session state
 session_state = {"active": False, "start_time": None, "suspended": False, "mode": "automatic"}
 
-SCHEDULE_FILE  = os.getenv("SCHEDULE_FILE",  "/app/shared_data/market_schedule.txt")
+SCHEDULE_FILE  = os.getenv("SCHEDULE_FILE",  "/app/data/market_schedule.txt")
 FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
 # ── OHLCV History ──────────────────────────────────────────────────────────────
@@ -301,11 +301,27 @@ def load_market_schedule():
                 if not line or line.startswith("#"):
                     continue
                 parts = line.split()
-                if len(parts) == 2:
+                if len(parts) >= 2:
                     schedule[parts[0].lower()] = parts[1]
+    except Exception as e:
+        print(f"[Scheduler] Cannot read schedule file {SCHEDULE_FILE}: {e}")
+    return schedule
+
+
+def _local_now(tz_name):
+    """Return current datetime in the given IANA timezone (e.g. 'Europe/Athens')."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
     except Exception:
         pass
-    return schedule
+    try:
+        import pytz
+        tz = pytz.timezone(tz_name)
+        return datetime.datetime.now(tz).replace(tzinfo=None)
+    except Exception:
+        pass
+    return datetime.datetime.utcnow()
 
 
 def _do_session_start():
@@ -354,13 +370,15 @@ def schedule_runner():
             if session_state.get("mode") == "automatic":
                 sched = load_market_schedule()
                 start_str = sched.get("start")
-                end_str = sched.get("end")
+                end_str   = sched.get("end")
+                tz_name   = sched.get("timezone", "UTC")
                 if start_str and end_str:
-                    now = datetime.datetime.now()
+                    now = _local_now(tz_name)
                     sh, sm = int(start_str.split(":")[0]), int(start_str.split(":")[1])
-                    eh, em = int(end_str.split(":")[0]), int(end_str.split(":")[1])
+                    eh, em = int(end_str.split(":")[0]),   int(end_str.split(":")[1])
                     start_t = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
                     end_t   = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+                    print(f"[Scheduler] Local time ({tz_name}): {now.strftime('%H:%M')}  window {start_str}-{end_str}")
                     if now >= end_t and session_state["active"]:
                         print("[Scheduler] Auto end of day")
                         _do_session_end()

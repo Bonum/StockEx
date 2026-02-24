@@ -41,6 +41,8 @@ WORKDIR /app
 COPY shared/                          /app/shared/
 COPY shared_data/securities.txt       /app/data/securities.txt
 COPY shared_data/market_schedule.txt  /app/data/market_schedule.txt
+# Also expose schedule path via env so dashboard finds it
+ENV SCHEDULE_FILE=/app/data/market_schedule.txt
 
 # Matcher service
 COPY matcher/matcher.py               /app/matcher.py
