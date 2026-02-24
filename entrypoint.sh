@@ -39,7 +39,7 @@ done
 echo "[startup] Kafka ready."
 
 # Create topics
-for TOPIC in orders trades snapshots control; do
+for TOPIC in orders trades snapshots control ai_insights; do
   $KAFKA_DIR/bin/kafka-topics.sh \
     --create --if-not-exists \
     --topic "$TOPIC" \
@@ -64,6 +64,10 @@ sleep 6
 echo "[startup] Starting FIX UI Client on port 5002..."
 python3 /app/fix_ui/fix_ui_client.py &
 sleep 3
+
+echo "[startup] Starting AI Analyst (interval=1800s)..."
+python3 /app/ai_analyst.py &
+sleep 1
 
 echo "[startup] Starting Frontend on port 5003..."
 PORT=$FRONTEND_PORT TEMPLATE_FOLDER=/app/frontend_templates python3 /app/frontend.py &

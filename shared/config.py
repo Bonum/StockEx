@@ -29,6 +29,9 @@ class Config:
     # Control topic for start/end of day signals
     CONTROL_TOPIC: str = os.getenv("CONTROL_TOPIC", "control")
 
+    # AI Analyst insights topic
+    AI_INSIGHTS_TOPIC: str = os.getenv("AI_INSIGHTS_TOPIC", "ai_insights")
+
     # Trading simulation
     TICK_SIZE: float = float(os.getenv("TICK_SIZE", "0.05"))
     ORDERS_PER_MIN: int = int(os.getenv("ORDERS_PER_MIN", "8"))

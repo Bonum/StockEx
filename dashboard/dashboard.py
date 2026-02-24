@@ -13,6 +13,7 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # Shared state
 orders, bbos, trades_cache = [], {}, []
+ai_insights_cache = []
 lock = threading.Lock()
 
 # SSE: list of queues for connected clients
@@ -128,7 +129,7 @@ def broadcast_event(event_type, data):
 
 def consume_kafka():
     consumer = create_consumer(
-        topics=[Config.ORDERS_TOPIC, Config.SNAPSHOTS_TOPIC, Config.TRADES_TOPIC],
+        topics=[Config.ORDERS_TOPIC, Config.SNAPSHOTS_TOPIC, Config.TRADES_TOPIC, Config.AI_INSIGHTS_TOPIC],
         group_id="dashboard",
         component_name="Dashboard",
     )
@@ -167,6 +168,12 @@ def consume_kafka():
                 qty = int(trade.get("quantity") or trade.get("qty") or 0)
                 ts = float(trade.get("timestamp") or time.time())
                 record_trade(sym, price, qty, ts)
+
+            elif msg.topic == Config.AI_INSIGHTS_TOPIC:
+                insight = msg.value
+                ai_insights_cache.insert(0, insight)
+                ai_insights_cache[:] = ai_insights_cache[:10]
+                broadcast_event("ai_insight", insight)
 
 
 # Initialise DB then start consumer thread
@@ -511,6 +518,7 @@ def stream():
                     f"event: init\ndata: "
                     f"{json.dumps({'orders': list(orders), 'bbos': dict(bbos), 'trades': list(trades_cache)})}\n\n"
                 )
+                yield f"event: ai_insights_init\ndata: {json.dumps(list(ai_insights_cache))}\n\n"
             # Also send current session state
             if not session_state["active"]:
                 _sess_status = "ended"

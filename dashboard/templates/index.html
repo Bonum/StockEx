@@ -48,6 +48,30 @@
       from { background: yellow; }
       to   { background: transparent; }
     }
+
+    /* AI Insights panel */
+    .ai-panel {
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px 14px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    .insight-card {
+      padding: 9px 12px;
+      border-left: 3px solid #5c6bc0;
+      margin-bottom: 8px;
+      background: #f8f9ff;
+      border-radius: 0 4px 4px 0;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .insight-time { font-size: 11px; color: #999; margin-bottom: 3px; }
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .insight-new { animation: fadeInDown 0.4s ease; }
     /* Connection status indicator */
     .status {
       display: inline-flex;
@@ -352,6 +376,20 @@
 
   </div>
 
+  <!-- AI Analyst panel (full width) -->
+  <div class="ai-panel">
+    <h2 style="margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:10px;">
+      AI Analyst
+      <span id="ai-model-badge" style="font-size:10px; color:#fff; background:#5c6bc0; padding:2px 8px; border-radius:10px; font-weight:normal;"></span>
+      <span id="ai-status" style="font-size:11px; color:#999; font-weight:normal; margin-left:4px;">waiting for first insight…</span>
+    </h2>
+    <div id="ai-insights-list" style="max-height:220px; overflow-y:auto;">
+      <div class="insight-card" style="color:#bbb; border-left-color:#ddd; background:#fafafa;" id="ai-placeholder">
+        No insights yet — insights are generated every 30 min when the session is active.
+      </div>
+    </div>
+  </div>
+
   <script>
     // State
     const state = {
@@ -389,6 +427,18 @@
 
     // Selected order state
     let selectedOrder = null;
+
+    function addInsight(insight) {
+      const list = document.getElementById("ai-insights-list");
+      const ph   = document.getElementById("ai-placeholder");
+      if (ph) ph.remove();
+      const div  = document.createElement("div");
+      div.className = "insight-card insight-new";
+      const t = new Date(insight.timestamp * 1000).toLocaleTimeString();
+      div.innerHTML = `<div class="insight-time">${t}</div><div>${insight.text}</div>`;
+      list.prepend(div);
+      while (list.children.length > 10) list.removeChild(list.lastChild);
+    }
 
     function renderOrders() {
       const tbody = document.getElementById("orders-body");
@@ -1034,6 +1084,18 @@
       eventSource.addEventListener("mode", (e) => {
         const data = JSON.parse(e.data);
         updateModeBtn(data.mode);
+      });
+
+      eventSource.addEventListener("ai_insights_init", (e) => {
+        const insights = JSON.parse(e.data);
+        insights.forEach(addInsight);
+      });
+
+      eventSource.addEventListener("ai_insight", (e) => {
+        const insight = JSON.parse(e.data);
+        addInsight(insight);
+        document.getElementById("ai-status").textContent =
+          "Last update: " + new Date().toLocaleTimeString();
       });
 
       eventSource.onerror = () => {

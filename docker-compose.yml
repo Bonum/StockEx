@@ -146,6 +146,23 @@ services:
     depends_on:
       - fix_oeg
 
+  ai_analyst:
+    build: ./ai_analyst
+    container_name: ai_analyst
+    depends_on:
+      - kafka
+    volumes:
+      - ./shared:/app/shared
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.1:8b
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_MODEL=${HF_MODEL:-mistralai/Mistral-7B-Instruct-v0.2}
+      - ANALYSIS_INTERVAL=1800
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   dashboard:
     build:
       context: ./dashboard

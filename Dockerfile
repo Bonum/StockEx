@@ -70,6 +70,9 @@ COPY fix-ui-client/fix-ui-client.py   /app/fix_ui/fix_ui_client.py
 COPY fix-ui-client/templates/         /app/fix_ui/templates/
 COPY client_hf.cfg                    /app/fix_ui/client_hf.cfg
 
+# AI Analyst service
+COPY ai_analyst/ai_analyst.py         /app/ai_analyst.py
+
 # ── Kafka KRaft configuration ─────────────────────────────────────────────────
 COPY kafka-kraft.properties           /opt/kafka/config/kraft/server.properties
 
