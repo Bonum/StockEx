@@ -131,6 +131,11 @@ def _call_llm(prompt):
 
 def _generate_and_broadcast():
     """Background thread: call LLM, publish result via SSE + Kafka."""
+    if not HF_TOKEN and not OLLAMA_HOST:
+        err = {"text": "⚠️ No LLM configured. Set HF_TOKEN in Space Settings → Secrets.", "source": "config", "timestamp": time.time()}
+        broadcast_event("ai_insight", err)
+        return
+
     prompt = _build_market_prompt()
     text, source = _call_llm(prompt)
     if text:
@@ -145,7 +150,6 @@ def _generate_and_broadcast():
             pass
         print(f"[Dashboard/LLM] Insight published ({len(text)} chars, src={source})")
     else:
-        # Surface the error in the panel
         err_insight = {"text": f"⚠️ LLM error: {source}", "source": "error", "timestamp": time.time()}
         broadcast_event("ai_insight", err_insight)
         print(f"[Dashboard/LLM] LLM failed: {source}")
@@ -682,7 +686,10 @@ def stream():
                     f"event: init\ndata: "
                     f"{json.dumps({'orders': list(orders), 'bbos': dict(bbos), 'trades': list(trades_cache)})}\n\n"
                 )
-                yield f"event: ai_insights_init\ndata: {json.dumps(list(ai_insights_cache))}\n\n"
+                init_insights = list(ai_insights_cache)
+                if not init_insights and not HF_TOKEN and not OLLAMA_HOST:
+                    init_insights = [{"text": "⚠️ No LLM configured. Go to Space Settings → Secrets and add HF_TOKEN.", "source": "config", "timestamp": time.time()}]
+                yield f"event: ai_insights_init\ndata: {json.dumps(init_insights)}\n\n"
             # Also send current session state
             if not session_state["active"]:
                 _sess_status = "ended"
