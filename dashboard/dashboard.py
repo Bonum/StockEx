@@ -30,6 +30,9 @@ FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 HF_TOKEN  = os.getenv("HF_TOKEN", "")
 HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 HF_URL    = "https://router.huggingface.co/v1/chat/completions"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
@@ -91,9 +94,30 @@ def _call_llm(prompt):
         except Exception as e:
             print(f"[Dashboard/LLM] Ollama error: {e}")
 
-    # 2. HuggingFace router
+    # 2. Groq (free, fast)
+    if GROQ_API_KEY:
+        try:
+            r = requests.post(GROQ_URL,
+                              headers={"Authorization": f"Bearer {GROQ_API_KEY}",
+                                       "Content-Type": "application/json"},
+                              json={"model": GROQ_MODEL,
+                                    "messages": [{"role": "user", "content": prompt}],
+                                    "max_tokens": 180,
+                                    "temperature": 0.7},
+                              timeout=30)
+            print(f"[Dashboard/LLM] Groq status {r.status_code}")
+            if r.status_code == 200:
+                text = r.json()["choices"][0]["message"]["content"].strip()
+                if text:
+                    return text, f"Groq/{GROQ_MODEL}"
+            else:
+                print(f"[Dashboard/LLM] Groq error: {r.text[:200]}")
+        except Exception as e:
+            print(f"[Dashboard/LLM] Groq exception: {e}")
+
+    # 3. HuggingFace router
     if not HF_TOKEN:
-        return None, "HF_TOKEN not set"
+        return None, "No LLM configured. Set GROQ_API_KEY (free at console.groq.com) or HF_TOKEN."
     print(f"[Dashboard/LLM] Calling HF router ({HF_MODEL})…")
     for attempt in range(3):
         try:
@@ -123,6 +147,9 @@ def _call_llm(prompt):
                     err_code = r.json().get("error", {}).get("code", "")
                 except Exception:
                     err_code = ""
+                if r.status_code == 402 or "credit" in r.text.lower() or "depleted" in r.text.lower():
+                    return None, ("HF credit balance depleted. Add GROQ_API_KEY secret instead "
+                                  "(free at console.groq.com — 14,400 req/day).")
                 if err_code == "model_not_supported" or "provider" in r.text.lower():
                     return None, (f"Model '{HF_MODEL}' not available on any enabled provider. "
                                   "Set HF_MODEL secret to a supported model (e.g. Qwen/Qwen2.5-7B-Instruct).")
@@ -138,8 +165,8 @@ def _call_llm(prompt):
 
 def _generate_and_broadcast():
     """Background thread: call LLM, publish result via SSE + Kafka."""
-    if not HF_TOKEN and not OLLAMA_HOST:
-        err = {"text": "⚠️ No LLM configured. Set HF_TOKEN in Space Settings → Secrets.", "source": "config", "timestamp": time.time()}
+    if not HF_TOKEN and not OLLAMA_HOST and not GROQ_API_KEY:
+        err = {"text": "⚠️ No LLM configured. Add GROQ_API_KEY secret (free at console.groq.com).", "source": "config", "timestamp": time.time()}
         broadcast_event("ai_insight", err)
         return
 
@@ -592,38 +619,51 @@ def trigger_ai_insight():
 def ai_debug():
     """Synchronous LLM test — returns raw API result for debugging."""
     result = {
-        "hf_token_set": bool(HF_TOKEN),
+        "groq_key_set":   bool(GROQ_API_KEY),
+        "groq_model":     GROQ_MODEL,
+        "hf_token_set":   bool(HF_TOKEN),
         "hf_token_prefix": HF_TOKEN[:8] + "…" if HF_TOKEN else None,
-        "hf_model": HF_MODEL,
-        "hf_url": HF_URL,
-        "ollama_host": OLLAMA_HOST,
+        "hf_model":       HF_MODEL,
+        "ollama_host":    OLLAMA_HOST,
     }
+    # Test Groq if configured
+    if GROQ_API_KEY:
+        try:
+            r = requests.post(GROQ_URL,
+                              headers={"Authorization": f"Bearer {GROQ_API_KEY}",
+                                       "Content-Type": "application/json"},
+                              json={"model": GROQ_MODEL,
+                                    "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+                                    "max_tokens": 10},
+                              timeout=15)
+            result["groq_status"] = r.status_code
+            result["groq_response"] = r.text[:200]
+        except Exception as e:
+            result["groq_exception"] = str(e)
+        return jsonify(result)
+    # Fall back to testing HF
     if not HF_TOKEN:
-        result["error"] = "HF_TOKEN not set"
+        result["error"] = "No LLM configured. Add GROQ_API_KEY secret (free at console.groq.com)."
         return jsonify(result)
     try:
-        r = requests.post(
-            HF_URL,
-            headers={"Authorization": f"Bearer {HF_TOKEN}",
-                     "Content-Type": "application/json"},
-            json={"model": HF_MODEL,
-                  "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-                  "max_tokens": 10},
-            timeout=30,
-        )
-        result["http_status"] = r.status_code
-        result["response_body"] = r.text[:500]
+        r = requests.post(HF_URL,
+                          headers={"Authorization": f"Bearer {HF_TOKEN}",
+                                   "Content-Type": "application/json"},
+                          json={"model": HF_MODEL,
+                                "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+                                "max_tokens": 10},
+                          timeout=30)
+        result["hf_status"] = r.status_code
+        result["hf_response"] = r.text[:400]
         try:
             rj = r.json()
-            result["response_json"] = rj
-            err_code = rj.get("error", {}).get("code", "")
-            if err_code == "model_not_supported" or "provider" in r.text.lower():
-                result["fix"] = (f"Model '{HF_MODEL}' not available on any enabled provider. "
-                                 "Try a different model or check huggingface.co/settings/inference-providers.")
+            result["hf_response_json"] = rj
+            if r.status_code == 402 or "credit" in r.text.lower():
+                result["fix"] = "HF credit depleted. Add GROQ_API_KEY secret (free at console.groq.com)."
         except Exception:
             pass
     except Exception as e:
-        result["exception"] = str(e)
+        result["hf_exception"] = str(e)
     return jsonify(result)
 
 
