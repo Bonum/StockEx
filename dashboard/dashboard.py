@@ -22,7 +22,8 @@ sse_clients_lock = threading.Lock()
 # Session state
 session_state = {"active": False, "start_time": None, "suspended": False, "mode": "automatic"}
 
-SCHEDULE_FILE = os.getenv("SCHEDULE_FILE", "/app/shared_data/market_schedule.txt")
+SCHEDULE_FILE  = os.getenv("SCHEDULE_FILE",  "/app/shared_data/market_schedule.txt")
+FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
 # ── OHLCV History ──────────────────────────────────────────────────────────────
 HISTORY_DB = os.getenv("HISTORY_DB", "/app/data/dashboard_history.db")
@@ -177,7 +178,7 @@ threading.Thread(target=consume_kafka, daemon=True).start()
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", frontend_url=FRONTEND_URL)
 
 
 @app.route("/health")

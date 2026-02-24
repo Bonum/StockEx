@@ -9,6 +9,8 @@ export MATCHER_URL=http://localhost:6000
 export PORT=5000
 export FIX_CONFIG=/app/fix_ui/client_hf.cfg
 export UI_PORT=5002
+export FRONTEND_PORT=5003
+export FRONTEND_URL=/frontend/
 
 # ── Kafka (KRaft) ─────────────────────────────────────────────────────────────
 echo "[startup] Formatting Kafka storage (KRaft)..."
@@ -63,7 +65,11 @@ echo "[startup] Starting FIX UI Client on port 5002..."
 python3 /app/fix_ui/fix_ui_client.py &
 sleep 2
 
-# ── nginx (reverse proxy: port 7860 → dashboard:5000 + fix-ui:5002) ───────────
+echo "[startup] Starting Frontend on port 5003..."
+PORT=$FRONTEND_PORT TEMPLATE_FOLDER=/app/frontend_templates python3 /app/frontend.py &
+sleep 2
+
+# ── nginx (reverse proxy: port 7860 → dashboard:5000 + fix-ui:5002 + frontend:5003) ──
 echo "[startup] Starting nginx on port 7860..."
 nginx
 

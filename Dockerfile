@@ -40,6 +40,7 @@ WORKDIR /app
 
 COPY shared/                          /app/shared/
 COPY shared_data/securities.txt       /app/data/securities.txt
+COPY shared_data/market_schedule.txt  /app/data/market_schedule.txt
 
 # Matcher service
 COPY matcher/matcher.py               /app/matcher.py
@@ -51,6 +52,10 @@ COPY md_feeder/mdf_simulator.py       /app/mdf_simulator.py
 # Dashboard service
 COPY dashboard/dashboard.py           /app/dashboard.py
 COPY dashboard/templates/             /app/templates/
+
+# Frontend (order entry) service
+COPY frontend/frontend.py             /app/frontend.py
+COPY frontend/templates/              /app/frontend_templates/
 
 # FIX OEG (Order Entry Gateway)
 COPY fix_oeg/fix_oeg_server.py        /app/fix_oeg/fix_oeg_server.py

@@ -204,7 +204,8 @@
     <button id="day-btn" onclick="toggleDay()" class="btn-day btn-start" disabled>Start of Day</button>
     <button id="suspend-btn" onclick="toggleSuspend()" class="btn-day btn-suspend" disabled>Suspend</button>
     <button id="mode-btn" onclick="toggleMode()" class="btn-day btn-automatic">Automatic</button>
-    <a href="/fix/" style="margin-left:auto; padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">FIX UI</a>
+    {% if frontend_url %}<a href="{{ frontend_url }}" target="_blank" style="margin-left:auto; padding:4px 14px; background:#5c6bc0; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">Frontend</a>{% endif %}
+    <a href="/fix/" style="{% if not frontend_url %}margin-left:auto; {% endif %}padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">FIX UI</a>
   </h1>
   <div class="container">
 

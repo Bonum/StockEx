@@ -7,7 +7,7 @@ import json, time, os
 from shared.config import Config
 from shared.kafka_utils import create_producer
 
-app = Flask(__name__, template_folder='templates')
+app = Flask(__name__, template_folder=os.getenv("TEMPLATE_FOLDER", "templates"))
 
 producer = create_producer(component_name="Frontend")
 

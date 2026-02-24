@@ -161,6 +161,7 @@ services:
       - matcher
     environment:
       - MATCHER_URL=http://matcher:6000
+      - FRONTEND_URL=http://localhost:5000
 
 volumes:
   matcher_data:  # Persists SQLite database across container restarts
