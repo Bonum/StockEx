@@ -201,9 +201,9 @@
     Trading Dashboard
     <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting...</span></span>
     <span id="session-badge" class="status idle"><span class="dot"></span><span id="session-text">IDLE</span></span>
-    <button id="day-btn" onclick="toggleDay()" class="btn-day btn-start">Start of Day</button>
+    <button id="day-btn" onclick="toggleDay()" class="btn-day btn-start" disabled>Start of Day</button>
     <button id="suspend-btn" onclick="toggleSuspend()" class="btn-day btn-suspend" disabled>Suspend</button>
-    <button id="mode-btn" onclick="toggleMode()" class="btn-day btn-manual">Manual</button>
+    <button id="mode-btn" onclick="toggleMode()" class="btn-day btn-automatic">Automatic</button>
     <a href="/fix/" style="margin-left:auto; padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">FIX UI</a>
   </h1>
   <div class="container">
@@ -310,7 +310,7 @@
       <div id="stats-container" style="flex-grow:1; overflow-y:auto; padding: 10px;">
         <table id="stats-table" style="width:100%; margin-bottom:10px; font-size:12px;">
           <thead>
-            <tr>
+            <tr style="background:#f0f0f0;">
               <th>Symbol</th>
               <th>Trades</th>
               <th>Volume</th>
@@ -764,7 +764,7 @@
         return;
       }
 
-      const pad  = { top: 18, right: 12, bottom: 32, left: 55 };
+      const pad  = { top: 18, right: 46, bottom: 32, left: 55 };
       const W    = canvas.width  - pad.left - pad.right;
       const H    = canvas.height - pad.top  - pad.bottom;
       const priceH = H * 0.70;
@@ -778,9 +778,10 @@
       const maxV = Math.max(...points.map(p => p.volume), 1);
       const toY  = p => priceY + priceH - ((p - minP) / (maxP - minP)) * priceH;
 
-      const n     = points.length;
-      const slotW = W / n;
-      const bodyW = Math.max(1, Math.floor(slotW * 0.65));
+      const n       = points.length;
+      const slotW   = W / n;
+      const bodyW   = Math.max(1, Math.floor(slotW * 0.65));
+      const volBarW = Math.max(1, Math.floor(slotW * 0.35));
 
       // Price grid
       ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
@@ -797,10 +798,19 @@
 
       // Volume bars
       points.forEach((p, i) => {
-        const x  = pad.left + i * slotW + (slotW - bodyW) / 2;
+        const x  = pad.left + i * slotW + (slotW - volBarW) / 2;
         const bh = (p.volume / maxV) * volH;
         ctx.fillStyle = p.close >= p.open ? "rgba(38,166,154,0.4)" : "rgba(239,83,80,0.4)";
-        ctx.fillRect(x, volY + volH - bh, bodyW, bh);
+        ctx.fillRect(x, volY + volH - bh, volBarW, bh);
+      });
+
+      // Volume Y-axis labels (right side)
+      ctx.fillStyle = "#888"; ctx.font = "9px Arial"; ctx.textAlign = "left";
+      [1.0, 0.5, 0.0].forEach(frac => {
+        const val = Math.round(maxV * frac);
+        const y   = volY + volH * (1 - frac);
+        const lbl = val >= 1000 ? (val / 1000).toFixed(1) + "k" : val.toString();
+        ctx.fillText(lbl, canvas.width - pad.right + 3, y + 3);
       });
 
       // Candlestick wicks + bodies
@@ -1052,7 +1062,7 @@
 
     let _sessionActive = false;
     let _sessionSuspended = false;
-    let _sessionMode = "manual";
+    let _sessionMode = "automatic";
 
     function updateSessionBadge(active, suspended) {
       const badge  = document.getElementById("session-badge");
@@ -1070,7 +1080,7 @@
         btn.className = "btn-day btn-suspend";
         dayBtn.textContent = "Start of Day";
         dayBtn.className = "btn-day btn-start";
-        dayBtn.disabled = isAuto;
+        dayBtn.disabled = isAuto;          // auto handles start; manual can't
       } else if (suspended) {
         badge.className = "status suspended";
         text.textContent = "PAUSED";
@@ -1079,7 +1089,7 @@
         btn.className = "btn-day btn-resume";
         dayBtn.textContent = "End of Day";
         dayBtn.className = "btn-day btn-end";
-        dayBtn.disabled = isAuto;
+        dayBtn.disabled = false;           // always allow manual end
       } else {
         badge.className = "status active";
         text.textContent = "ACTIVE";
@@ -1088,7 +1098,7 @@
         btn.className = "btn-day btn-suspend";
         dayBtn.textContent = "End of Day";
         dayBtn.className = "btn-day btn-end";
-        dayBtn.disabled = isAuto;
+        dayBtn.disabled = false;           // always allow manual end
       }
     }
 

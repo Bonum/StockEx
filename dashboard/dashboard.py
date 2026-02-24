@@ -20,7 +20,7 @@ sse_clients = []
 sse_clients_lock = threading.Lock()
 
 # Session state
-session_state = {"active": False, "start_time": None, "suspended": False, "mode": "manual"}
+session_state = {"active": False, "start_time": None, "suspended": False, "mode": "automatic"}
 
 SCHEDULE_FILE = os.getenv("SCHEDULE_FILE", "/app/shared_data/market_schedule.txt")
 
