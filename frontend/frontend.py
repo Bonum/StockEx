@@ -77,7 +77,10 @@ def securities():
 @app.route('/book')
 def book():
     import requests
-    r = requests.get(f"{Config.MATCHER_URL}/book", timeout=2)
+    symbol = request.args.get('symbol', '')
+    if not symbol:
+        return jsonify({"bids": [], "asks": []})
+    r = requests.get(f"{Config.MATCHER_URL}/orderbook/{symbol}", timeout=3)
     return (r.text, r.status_code, {'Content-Type': 'application/json'})
 
 @app.route('/trades')

@@ -124,6 +124,7 @@
       <span id="status-text">Connecting...</span>
     </span>
     <button id="reconnect-btn" class="btn-reconnect" onclick="reconnect()">Reconnect</button>
+    <a onclick="window.location.href='/'" style="margin-left:auto; padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none; cursor:pointer;">← Dashboard</a>
   </h1>
 
   <!-- Order Entry -->
@@ -137,7 +138,7 @@
         </div>
         <div class="form-group">
           <label>Symbol</label>
-          <select id="symbol-select" name="symbol">
+          <select id="symbol-select" name="symbol" onchange="loadBook()">
             <option value="">Loading...</option>
           </select>
         </div>
@@ -326,8 +327,9 @@
 
     async function loadBook() {
       const now = new Date().toLocaleTimeString();
+      const symbol = document.getElementById('symbol-select')?.value || '';
       try {
-        const r = await fetch(BASE + '/book');
+        const r = await fetch(BASE + '/book?symbol=' + encodeURIComponent(symbol));
         const b = await r.json();
         renderBook(b);
         document.getElementById('book-updated').textContent = 'Updated: ' + now;
