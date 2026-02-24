@@ -59,11 +59,11 @@ python3 /app/mdf_simulator.py &
 
 echo "[startup] Starting FIX OEG on port 5001..."
 (cd /app/fix_oeg && python3 /app/fix_oeg/fix_oeg_server.py) &
-sleep 3
+sleep 6
 
 echo "[startup] Starting FIX UI Client on port 5002..."
 python3 /app/fix_ui/fix_ui_client.py &
-sleep 2
+sleep 3
 
 echo "[startup] Starting Frontend on port 5003..."
 PORT=$FRONTEND_PORT TEMPLATE_FOLDER=/app/frontend_templates python3 /app/frontend.py &

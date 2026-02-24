@@ -197,4 +197,4 @@ CONFIG_FILE = os.getenv("FIX_CONFIG", "client.cfg")
 PORT = int(os.getenv("UI_PORT", "5002"))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=True)
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)

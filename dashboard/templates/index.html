@@ -201,6 +201,7 @@
     Trading Dashboard
     <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting...</span></span>
     <span id="session-badge" class="status idle"><span class="dot"></span><span id="session-text">IDLE</span></span>
+    <span id="local-clock" style="font-size:13px; font-weight:normal; color:#555; background:#f0f0f0; padding:3px 10px; border-radius:12px; font-variant-numeric:tabular-nums;"></span>
     <button id="day-btn" onclick="toggleDay()" class="btn-day btn-start" disabled>Start of Day</button>
     <button id="suspend-btn" onclick="toggleSuspend()" class="btn-day btn-suspend" disabled>Suspend</button>
     <button id="mode-btn" onclick="toggleMode()" class="btn-day btn-automatic">Automatic</button>
@@ -1383,6 +1384,16 @@
     }
 
     // Initial load: fetch data via REST, then connect SSE
+    // ── Local clock ───────────────────────────────────────────────────────────
+    (function tickClock() {
+      const el = document.getElementById("local-clock");
+      if (el) {
+        const now = new Date();
+        el.textContent = now.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+      }
+      setTimeout(tickClock, 1000);
+    })();
+
     async function init() {
       await fetchData();
       connectSSE();

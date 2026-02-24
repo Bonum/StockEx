@@ -211,6 +211,9 @@
   </div>
 
   <script>
+    // Detect API base path: works whether served at / or under /frontend/
+    const BASE = window.location.pathname === '/' ? '' : window.location.pathname.replace(/\/$/, '');
+
     let pollInterval = null;
 
     function setStatus(cls, text) {
@@ -223,7 +226,7 @@
 
     async function loadSecurities() {
       try {
-        const r = await fetch('/securities');
+        const r = await fetch(BASE + '/securities');
         const symbols = await r.json();
         const sel = document.getElementById('symbol-select');
         sel.innerHTML = '';
@@ -251,7 +254,7 @@
         timestamp: Date.now() / 1000
       };
       try {
-        const r = await fetch('/order', {
+        const r = await fetch(BASE + '/order', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(data)
@@ -324,7 +327,7 @@
     async function loadBook() {
       const now = new Date().toLocaleTimeString();
       try {
-        const r = await fetch('/book');
+        const r = await fetch(BASE + '/book');
         const b = await r.json();
         renderBook(b);
         document.getElementById('book-updated').textContent = 'Updated: ' + now;
@@ -335,7 +338,7 @@
         setStatus('disconnected', 'Disconnected');
       }
       try {
-        const r2 = await fetch('/trades');
+        const r2 = await fetch(BASE + '/trades');
         const t   = await r2.json();
         renderTrades(Array.isArray(t) ? t : (t.trades || []));
         document.getElementById('trades-updated').textContent = 'Updated: ' + now;
