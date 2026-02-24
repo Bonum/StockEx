@@ -124,8 +124,8 @@ def _call_llm(prompt):
                 except Exception:
                     err_code = ""
                 if err_code == "model_not_supported" or "provider" in r.text.lower():
-                    return None, ("HF providers not enabled. Go to huggingface.co/settings/inference-providers "
-                                  "and enable at least one provider (e.g. Cerebras, Groq, or HF Inference).")
+                    return None, (f"Model '{HF_MODEL}' not available on any enabled provider. "
+                                  "Set HF_MODEL secret to a supported model (e.g. Qwen/Qwen2.5-7B-Instruct).")
                 return None, f"HF HTTP {r.status_code}: {r.text[:120]}"
         except requests.exceptions.Timeout:
             print(f"[Dashboard/LLM] HF timeout (attempt {attempt+1})")
@@ -618,9 +618,8 @@ def ai_debug():
             result["response_json"] = rj
             err_code = rj.get("error", {}).get("code", "")
             if err_code == "model_not_supported" or "provider" in r.text.lower():
-                result["fix"] = ("Enable inference providers at: "
-                                 "https://huggingface.co/settings/inference-providers  "
-                                 "Enable at least one free provider: Cerebras, Groq, SambaNova, or HF Inference.")
+                result["fix"] = (f"Model '{HF_MODEL}' not available on any enabled provider. "
+                                 "Try a different model or check huggingface.co/settings/inference-providers.")
         except Exception:
             pass
     except Exception as e:
