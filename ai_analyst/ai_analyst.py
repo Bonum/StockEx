@@ -49,30 +49,38 @@ def call_llm(prompt: str) -> str | None:
         except Exception as e:
             print(f"[AI-Analyst] Ollama unreachable: {e}")
 
-    # 2. HuggingFace Inference API
+    # 2. HuggingFace Inference API (with retry on 503 model-loading)
     if HF_TOKEN:
-        try:
-            url = f"https://api-inference.huggingface.co/models/{HF_MODEL}/v1/chat/completions"
-            resp = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {HF_TOKEN}"},
-                json={
-                    "model":       HF_MODEL,
-                    "messages":    [{"role": "user", "content": prompt}],
-                    "max_tokens":  220,
-                    "temperature": 0.7,
-                },
-                timeout=45,
-            )
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"].strip()
-                if text:
-                    print(f"[AI-Analyst] Insight via HuggingFace ({HF_MODEL})")
-                    return text
-            else:
-                print(f"[AI-Analyst] HF HTTP {resp.status_code}: {resp.text[:300]}")
-        except Exception as e:
-            print(f"[AI-Analyst] HF API error: {e}")
+        url = f"https://api-inference.huggingface.co/models/{HF_MODEL}/v1/chat/completions"
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    url,
+                    headers={"Authorization": f"Bearer {HF_TOKEN}"},
+                    json={
+                        "model":       HF_MODEL,
+                        "messages":    [{"role": "user", "content": prompt}],
+                        "max_tokens":  220,
+                        "temperature": 0.7,
+                    },
+                    timeout=60,
+                )
+                if resp.status_code == 200:
+                    text = resp.json()["choices"][0]["message"]["content"].strip()
+                    if text:
+                        print(f"[AI-Analyst] Insight via HuggingFace ({HF_MODEL})")
+                        return text
+                elif resp.status_code == 503:
+                    body = resp.json() if resp.content else {}
+                    wait = body.get("estimated_time", 20)
+                    print(f"[AI-Analyst] HF model loading, waiting {wait:.0f}s (attempt {attempt+1}/3)")
+                    time.sleep(min(float(wait), 30))
+                else:
+                    print(f"[AI-Analyst] HF HTTP {resp.status_code}: {resp.text[:300]}")
+                    break
+            except Exception as e:
+                print(f"[AI-Analyst] HF API error (attempt {attempt+1}/3): {e}")
+                break
 
     return None
 

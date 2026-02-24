@@ -434,18 +434,32 @@
     let selectedOrder = null;
 
     async function triggerAIInsight() {
-      const btn = document.getElementById("ai-generate-btn");
+      const btn    = document.getElementById("ai-generate-btn");
+      const status = document.getElementById("ai-status");
       btn.disabled = true;
       btn.textContent = "Generating…";
-      document.getElementById("ai-status").textContent = "generating insight…";
+      status.textContent = "contacting LLM…";
       try {
         await fetch("/session/ai_insight", { method: "POST" });
       } catch(e) {}
-      // Re-enable after 10s (LLM needs time)
+
+      // Countdown timer — LLM (especially HF cold-start) can take up to 2 min
+      let elapsed = 0;
+      const tick = setInterval(() => {
+        elapsed += 1;
+        status.textContent = `generating… ${elapsed}s`;
+      }, 1000);
+
+      // Hard cap: re-enable after 120s with failure message
       setTimeout(() => {
+        clearInterval(tick);
         btn.disabled = false;
-        btn.textContent = "Generate Now";
-      }, 10000);
+        btn.textContent = "✨ Generate Now";
+        status.textContent = "no response — check logs or try again";
+      }, 120000);
+
+      // Store tick handle so SSE success can clear it
+      btn._tick = tick;
     }
 
     function addInsight(insight) {
@@ -1117,8 +1131,9 @@
         document.getElementById("ai-status").textContent =
           "Last update: " + new Date().toLocaleTimeString();
         const btn = document.getElementById("ai-generate-btn");
+        if (btn._tick) { clearInterval(btn._tick); btn._tick = null; }
         btn.disabled = false;
-        btn.textContent = "Generate Now";
+        btn.textContent = "✨ Generate Now";
       });
 
       eventSource.onerror = () => {
