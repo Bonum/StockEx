@@ -11,7 +11,7 @@ from shared.kafka_utils import create_producer, create_consumer
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "")          # e.g. http://host.docker.internal:11434
 OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 HF_TOKEN       = os.getenv("HF_TOKEN", "")
-HF_MODEL       = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
+HF_MODEL       = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct-1M")
 ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL", "1800"))  # 30 min default
 
 # ── Rolling market data buffers ────────────────────────────────────────────────
@@ -49,14 +49,18 @@ def call_llm(prompt: str) -> str | None:
         except Exception as e:
             print(f"[AI-Analyst] Ollama unreachable: {e}")
 
-    # 2. HuggingFace Inference API (with retry on 503 model-loading)
+    # 2. HuggingFace Inference API — router.huggingface.co (OpenAI-compatible)
     if HF_TOKEN:
-        url = f"https://api-inference.huggingface.co/models/{HF_MODEL}/v1/chat/completions"
+        url = "https://router.huggingface.co/v1/chat/completions"
+        print(f"[AI-Analyst] Calling HF router: model={HF_MODEL}")
         for attempt in range(3):
             try:
                 resp = requests.post(
                     url,
-                    headers={"Authorization": f"Bearer {HF_TOKEN}"},
+                    headers={
+                        "Authorization": f"Bearer {HF_TOKEN}",
+                        "Content-Type":  "application/json",
+                    },
                     json={
                         "model":       HF_MODEL,
                         "messages":    [{"role": "user", "content": prompt}],
@@ -65,6 +69,7 @@ def call_llm(prompt: str) -> str | None:
                     },
                     timeout=60,
                 )
+                print(f"[AI-Analyst] HF response status: {resp.status_code}")
                 if resp.status_code == 200:
                     text = resp.json()["choices"][0]["message"]["content"].strip()
                     if text:
@@ -76,7 +81,7 @@ def call_llm(prompt: str) -> str | None:
                     print(f"[AI-Analyst] HF model loading, waiting {wait:.0f}s (attempt {attempt+1}/3)")
                     time.sleep(min(float(wait), 30))
                 else:
-                    print(f"[AI-Analyst] HF HTTP {resp.status_code}: {resp.text[:300]}")
+                    print(f"[AI-Analyst] HF HTTP {resp.status_code}: {resp.text[:400]}")
                     break
             except Exception as e:
                 print(f"[AI-Analyst] HF API error (attempt {attempt+1}/3): {e}")
