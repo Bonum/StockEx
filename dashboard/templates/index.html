@@ -826,14 +826,17 @@
         ctx.strokeStyle = color; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(midX, toY(p.high)); ctx.lineTo(midX, toY(p.low)); ctx.stroke();
 
-        // Body (min 1px so single-price ticks still show)
-        const bodyTop = Math.min(toY(p.open), toY(p.close));
-        const bodyH   = Math.max(1, Math.abs(toY(p.close) - toY(p.open)));
-        ctx.fillStyle = color;
-        ctx.fillRect(x, bodyTop, bodyW, bodyH);
       });
 
-      // Close-price dots (orange) — one point per candle
+      // Close-price line + dots (orange)
+      ctx.strokeStyle = "rgba(255,152,0,0.85)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = pad.left + i * slotW + slotW / 2;
+        i === 0 ? ctx.moveTo(x, toY(p.close)) : ctx.lineTo(x, toY(p.close));
+      });
+      ctx.stroke();
       ctx.fillStyle = "rgba(255,152,0,0.9)";
       points.forEach((p, i) => {
         const x = pad.left + i * slotW + slotW / 2;
