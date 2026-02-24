@@ -2,7 +2,7 @@ import sys
 sys.path.insert(0, "/app")
 
 from flask import Flask, render_template, jsonify, Response, request
-import threading, json, os, time, requests, sqlite3
+import threading, json, os, time, requests, sqlite3, datetime
 from queue import Queue, Empty
 
 from shared.config import Config
@@ -20,7 +20,9 @@ sse_clients = []
 sse_clients_lock = threading.Lock()
 
 # Session state
-session_state = {"active": False, "start_time": None, "suspended": False}
+session_state = {"active": False, "start_time": None, "suspended": False, "mode": "manual"}
+
+SCHEDULE_FILE = os.getenv("SCHEDULE_FILE", "/app/shared_data/market_schedule.txt")
 
 # ── OHLCV History ──────────────────────────────────────────────────────────────
 HISTORY_DB = os.getenv("HISTORY_DB", "/app/data/dashboard_history.db")
@@ -287,27 +289,94 @@ def amend_order():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+# ── Market schedule ─────────────────────────────────────────────────────────────
+
+def load_market_schedule():
+    schedule = {}
+    try:
+        with open(SCHEDULE_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) == 2:
+                    schedule[parts[0].lower()] = parts[1]
+    except Exception:
+        pass
+    return schedule
+
+
+def _do_session_start():
+    securities = load_securities_file()
+    if securities:
+        for sym in securities:
+            securities[sym]["current"] = securities[sym]["start"]
+        save_securities_file(securities)
+    p = get_producer()
+    p.send(Config.CONTROL_TOPIC, {"action": "start"})
+    p.flush()
+    session_state["active"] = True
+    session_state["suspended"] = False
+    session_state["start_time"] = time.time()
+    broadcast_event("session", {"status": "started", "time": session_state["start_time"]})
+
+
+def _do_session_end():
+    securities = load_securities_file()
+    for sym in list(securities.keys()):
+        try:
+            r = requests.get(f"{Config.MATCHER_URL}/orderbook/{sym}", timeout=2)
+            book = r.json()
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            if bids and asks:
+                best_bid = max(b["price"] for b in bids)
+                best_ask = min(a["price"] for a in asks)
+                securities[sym]["current"] = round((best_bid + best_ask) / 2, 2)
+        except Exception:
+            pass
+    if securities:
+        save_securities_file(securities)
+    p = get_producer()
+    p.send(Config.CONTROL_TOPIC, {"action": "stop"})
+    p.flush()
+    session_state["active"] = False
+    session_state["suspended"] = False
+    broadcast_event("session", {"status": "ended", "time": time.time()})
+
+
+def schedule_runner():
+    """Background thread: auto start/end session based on market_schedule.txt."""
+    while True:
+        try:
+            if session_state.get("mode") == "automatic":
+                sched = load_market_schedule()
+                start_str = sched.get("start")
+                end_str = sched.get("end")
+                if start_str and end_str:
+                    now = datetime.datetime.now()
+                    sh, sm = int(start_str.split(":")[0]), int(start_str.split(":")[1])
+                    eh, em = int(end_str.split(":")[0]), int(end_str.split(":")[1])
+                    start_t = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                    end_t   = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+                    if now >= end_t and session_state["active"]:
+                        print("[Scheduler] Auto end of day")
+                        _do_session_end()
+                    elif now >= start_t and not session_state["active"]:
+                        print("[Scheduler] Auto start of day")
+                        _do_session_start()
+        except Exception as e:
+            print(f"[Scheduler] Error: {e}")
+        time.sleep(30)
+
+
 # ── Session endpoints ──────────────────────────────────────────────────────────
 
 @app.route("/session/start", methods=["POST"])
 def session_start():
     try:
-        # Reset current prices to start prices
-        securities = load_securities_file()
-        if securities:
-            for sym in securities:
-                securities[sym]["current"] = securities[sym]["start"]
-            save_securities_file(securities)
-
-        # Signal md_feeder to start
-        p = get_producer()
-        p.send(Config.CONTROL_TOPIC, {"action": "start"})
-        p.flush()
-
-        session_state["active"] = True
-        session_state["suspended"] = False
-        session_state["start_time"] = time.time()
-        broadcast_event("session", {"status": "started", "time": session_state["start_time"]})
+        _do_session_start()
         return jsonify({"status": "ok", "message": "Day started"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -316,31 +385,7 @@ def session_start():
 @app.route("/session/end", methods=["POST"])
 def session_end():
     try:
-        securities = load_securities_file()
-        # Update current prices from BBO mid where available
-        for sym in list(securities.keys()):
-            try:
-                r = requests.get(f"{Config.MATCHER_URL}/orderbook/{sym}", timeout=2)
-                book = r.json()
-                bids = book.get("bids", [])
-                asks = book.get("asks", [])
-                if bids and asks:
-                    best_bid = max(b["price"] for b in bids)
-                    best_ask = min(a["price"] for a in asks)
-                    securities[sym]["current"] = round((best_bid + best_ask) / 2, 2)
-            except Exception:
-                pass
-        if securities:
-            save_securities_file(securities)
-
-        # Signal md_feeder to stop
-        p = get_producer()
-        p.send(Config.CONTROL_TOPIC, {"action": "stop"})
-        p.flush()
-
-        session_state["active"] = False
-        session_state["suspended"] = False
-        broadcast_event("session", {"status": "ended", "time": time.time()})
+        _do_session_end()
         return jsonify({"status": "ok", "message": "Day ended, closing prices saved"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -372,6 +417,18 @@ def session_resume():
         session_state["suspended"] = False
         broadcast_event("session", {"status": "active"})
         return jsonify({"status": "ok", "message": "Session resumed"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/session/mode", methods=["POST"])
+def session_mode():
+    try:
+        current = session_state.get("mode", "manual")
+        new_mode = "automatic" if current == "manual" else "manual"
+        session_state["mode"] = new_mode
+        broadcast_event("mode", {"mode": new_mode})
+        return jsonify({"status": "ok", "mode": new_mode})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -443,6 +500,7 @@ def stream():
             else:
                 _sess_status = "started"
             yield f"event: session\ndata: {json.dumps({'status': _sess_status})}\n\n"
+            yield f"event: mode\ndata: {json.dumps({'mode': session_state.get('mode', 'manual')})}\n\n"
             while True:
                 try:
                     message = q.get(timeout=30)
@@ -464,6 +522,9 @@ def stream():
         },
     )
 
+
+_scheduler = threading.Thread(target=schedule_runner, daemon=True)
+_scheduler.start()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))

@@ -140,12 +140,16 @@
     }
     .btn-start { background: #28a745; color: #fff; }
     .btn-start:hover { background: #218838; }
+    .btn-end { background: #ff9800; color: #fff; }
+    .btn-end:hover { background: #e68900; }
     .btn-suspend { background: #607d8b; color: #fff; }
     .btn-suspend:hover { background: #455a64; }
     .btn-resume { background: #4caf50; color: #fff; }
     .btn-resume:hover { background: #388e3c; }
-    .btn-end { background: #ff9800; color: #fff; }
-    .btn-end:hover { background: #e68900; }
+    .btn-manual { background: #607d8b; color: #fff; }
+    .btn-manual:hover { background: #455a64; }
+    .btn-automatic { background: #1565c0; color: #fff; }
+    .btn-automatic:hover { background: #0d47a1; }
     .btn-day:disabled { background: #ccc !important; color: #999; cursor: not-allowed; }
     .status.active { background: #d4edda; color: #155724; }
     .status.active .dot { background: #28a745; }
@@ -197,9 +201,9 @@
     Trading Dashboard
     <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting...</span></span>
     <span id="session-badge" class="status idle"><span class="dot"></span><span id="session-text">IDLE</span></span>
-    <button onclick="startDay()" class="btn-day btn-start">Start of Day</button>
+    <button id="day-btn" onclick="toggleDay()" class="btn-day btn-start">Start of Day</button>
     <button id="suspend-btn" onclick="toggleSuspend()" class="btn-day btn-suspend" disabled>Suspend</button>
-    <button onclick="endDay()" class="btn-day btn-end">End of Day</button>
+    <button id="mode-btn" onclick="toggleMode()" class="btn-day btn-manual">Manual</button>
     <a href="/fix/" style="margin-left:auto; padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">FIX UI</a>
   </h1>
   <div class="container">
@@ -1012,6 +1016,11 @@
         updateSessionBadge(active, suspended);
       });
 
+      eventSource.addEventListener("mode", (e) => {
+        const data = JSON.parse(e.data);
+        updateModeBtn(data.mode);
+      });
+
       eventSource.onerror = () => {
         setStatus("disconnected", "Disconnected");
         state.connected = false;
@@ -1041,31 +1050,80 @@
 
     // ── Session control ────────────────────────────────────────────────────────
 
+    let _sessionActive = false;
     let _sessionSuspended = false;
+    let _sessionMode = "manual";
 
     function updateSessionBadge(active, suspended) {
-      const badge = document.getElementById("session-badge");
-      const text  = document.getElementById("session-text");
-      const btn   = document.getElementById("suspend-btn");
+      const badge  = document.getElementById("session-badge");
+      const text   = document.getElementById("session-text");
+      const btn    = document.getElementById("suspend-btn");
+      const dayBtn = document.getElementById("day-btn");
+      _sessionActive = !!active;
       _sessionSuspended = !!suspended;
+      const isAuto = _sessionMode === "automatic";
       if (!active) {
         badge.className = "status idle";
         text.textContent = "IDLE";
         btn.disabled = true;
         btn.textContent = "Suspend";
         btn.className = "btn-day btn-suspend";
+        dayBtn.textContent = "Start of Day";
+        dayBtn.className = "btn-day btn-start";
+        dayBtn.disabled = isAuto;
       } else if (suspended) {
         badge.className = "status suspended";
         text.textContent = "PAUSED";
         btn.disabled = false;
         btn.textContent = "Resume";
         btn.className = "btn-day btn-resume";
+        dayBtn.textContent = "End of Day";
+        dayBtn.className = "btn-day btn-end";
+        dayBtn.disabled = isAuto;
       } else {
         badge.className = "status active";
         text.textContent = "ACTIVE";
         btn.disabled = false;
         btn.textContent = "Suspend";
         btn.className = "btn-day btn-suspend";
+        dayBtn.textContent = "End of Day";
+        dayBtn.className = "btn-day btn-end";
+        dayBtn.disabled = isAuto;
+      }
+    }
+
+    function updateModeBtn(mode) {
+      const modeBtn = document.getElementById("mode-btn");
+      _sessionMode = mode;
+      if (mode === "automatic") {
+        modeBtn.textContent = "Automatic";
+        modeBtn.className = "btn-day btn-automatic";
+      } else {
+        modeBtn.textContent = "Manual";
+        modeBtn.className = "btn-day btn-manual";
+      }
+      updateSessionBadge(_sessionActive, _sessionSuspended);
+    }
+
+    async function toggleDay() {
+      if (_sessionActive) {
+        if (!confirm("End of Day: stop simulation and save closing prices?")) return;
+        try {
+          const r = await fetch("/session/end", { method: "POST" });
+          const result = await r.json();
+          if (result.status !== "ok") alert("Error: " + (result.error || "Unknown error"));
+        } catch (e) {
+          alert("Error: " + e.message);
+        }
+      } else {
+        if (!confirm("Start of Day: reset all security prices to their opening values and begin simulation?")) return;
+        try {
+          const r = await fetch("/session/start", { method: "POST" });
+          const result = await r.json();
+          if (result.status !== "ok") alert("Error: " + (result.error || "Unknown error"));
+        } catch (e) {
+          alert("Error: " + e.message);
+        }
       }
     }
 
@@ -1080,32 +1138,11 @@
       }
     }
 
-    async function startDay() {
-      if (!confirm("Start of Day: reset all security prices to their opening values and begin simulation?")) return;
+    async function toggleMode() {
       try {
-        const r = await fetch("/session/start", { method: "POST" });
+        const r = await fetch("/session/mode", { method: "POST" });
         const result = await r.json();
-        if (result.status === "ok") {
-          updateSessionBadge(true, false);
-        } else {
-          alert("Error: " + (result.error || "Unknown error"));
-        }
-      } catch (e) {
-        alert("Error: " + e.message);
-      }
-    }
-
-    async function endDay() {
-      if (!confirm("End of Day: stop simulation and save closing prices?")) return;
-      try {
-        const r = await fetch("/session/end", { method: "POST" });
-        const result = await r.json();
-        if (result.status === "ok") {
-          updateSessionBadge(false, false);
-          alert("Day ended. Closing prices saved.");
-        } else {
-          alert("Error: " + (result.error || "Unknown error"));
-        }
+        if (result.status !== "ok") alert("Error: " + (result.error || "Unknown error"));
       } catch (e) {
         alert("Error: " + e.message);
       }
