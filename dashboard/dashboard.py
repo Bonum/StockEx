@@ -577,6 +577,40 @@ def trigger_ai_insight():
     return jsonify({"status": "ok", "message": "Insight generation started"})
 
 
+@app.route("/ai/debug")
+def ai_debug():
+    """Synchronous LLM test — returns raw API result for debugging."""
+    result = {
+        "hf_token_set": bool(HF_TOKEN),
+        "hf_token_prefix": HF_TOKEN[:8] + "…" if HF_TOKEN else None,
+        "hf_model": HF_MODEL,
+        "hf_url": HF_URL,
+        "ollama_host": OLLAMA_HOST,
+    }
+    if not HF_TOKEN:
+        result["error"] = "HF_TOKEN not set"
+        return jsonify(result)
+    try:
+        r = requests.post(
+            HF_URL,
+            headers={"Authorization": f"Bearer {HF_TOKEN}",
+                     "Content-Type": "application/json"},
+            json={"model": HF_MODEL,
+                  "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+                  "max_tokens": 10},
+            timeout=30,
+        )
+        result["http_status"] = r.status_code
+        result["response_body"] = r.text[:500]
+        try:
+            result["response_json"] = r.json()
+        except Exception:
+            pass
+    except Exception as e:
+        result["exception"] = str(e)
+    return jsonify(result)
+
+
 @app.route("/session/mode", methods=["POST"])
 def session_mode():
     try:
