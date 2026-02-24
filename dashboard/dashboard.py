@@ -28,7 +28,7 @@ FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
 # ── AI Analyst (inline LLM for on-demand generation) ───────────────────────────
 HF_TOKEN  = os.getenv("HF_TOKEN", "")
-HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct-1M")
+HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 HF_URL    = "https://router.huggingface.co/v1/chat/completions"
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
