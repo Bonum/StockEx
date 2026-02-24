@@ -179,6 +179,8 @@ services:
     environment:
       - MATCHER_URL=http://matcher:6000
       - FRONTEND_URL=http://localhost:5000
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_MODEL=${HF_MODEL:-Qwen/Qwen2.5-7B-Instruct-1M}
 
 volumes:
   matcher_data:  # Persists SQLite database across container restarts

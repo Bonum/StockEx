@@ -28,7 +28,7 @@ FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
 # ── AI Analyst (inline LLM for on-demand generation) ───────────────────────────
 HF_TOKEN  = os.getenv("HF_TOKEN", "")
-HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-3B-Instruct")
+HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct-1M")
 HF_URL    = "https://router.huggingface.co/v1/chat/completions"
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
@@ -119,6 +119,13 @@ def _call_llm(prompt):
                 time.sleep(wait)
             else:
                 print(f"[Dashboard/LLM] HF error body: {r.text[:400]}")
+                try:
+                    err_code = r.json().get("error", {}).get("code", "")
+                except Exception:
+                    err_code = ""
+                if err_code == "model_not_supported" or "provider" in r.text.lower():
+                    return None, ("HF providers not enabled. Go to huggingface.co/settings/inference-providers "
+                                  "and enable at least one provider (e.g. Cerebras, Groq, or HF Inference).")
                 return None, f"HF HTTP {r.status_code}: {r.text[:120]}"
         except requests.exceptions.Timeout:
             print(f"[Dashboard/LLM] HF timeout (attempt {attempt+1})")
@@ -607,7 +614,13 @@ def ai_debug():
         result["http_status"] = r.status_code
         result["response_body"] = r.text[:500]
         try:
-            result["response_json"] = r.json()
+            rj = r.json()
+            result["response_json"] = rj
+            err_code = rj.get("error", {}).get("code", "")
+            if err_code == "model_not_supported" or "provider" in r.text.lower():
+                result["fix"] = ("Enable inference providers at: "
+                                 "https://huggingface.co/settings/inference-providers  "
+                                 "Enable at least one free provider: Cerebras, Groq, SambaNova, or HF Inference.")
         except Exception:
             pass
     except Exception as e:

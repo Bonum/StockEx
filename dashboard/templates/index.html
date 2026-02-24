@@ -467,7 +467,10 @@
       const ph   = document.getElementById("ai-placeholder");
       if (ph) ph.remove();
       const div  = document.createElement("div");
+      const isErr = insight.source === "error" || insight.source === "config"
+                    || (insight.text || "").startsWith("⚠️");
       div.className = "insight-card insight-new";
+      if (isErr) div.style.cssText = "border-left-color:#e53935; background:#fff5f5;";
       const t = new Date(insight.timestamp * 1000).toLocaleTimeString();
       div.innerHTML = `<div class="insight-time">${t}</div><div>${insight.text}</div>`;
       list.prepend(div);
@@ -1128,8 +1131,11 @@
       eventSource.addEventListener("ai_insight", (e) => {
         const insight = JSON.parse(e.data);
         addInsight(insight);
-        document.getElementById("ai-status").textContent =
-          "Last update: " + new Date().toLocaleTimeString();
+        const isErr = insight.source === "error" || insight.source === "config"
+                      || (insight.text || "").startsWith("⚠️");
+        const statusEl = document.getElementById("ai-status");
+        statusEl.textContent = isErr ? "error — see below" : "Last update: " + new Date().toLocaleTimeString();
+        statusEl.style.color = isErr ? "#e53935" : "#999";
         const btn = document.getElementById("ai-generate-btn");
         if (btn._tick) { clearInterval(btn._tick); btn._tick = null; }
         btn.disabled = false;
