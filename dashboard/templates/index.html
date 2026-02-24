@@ -450,13 +450,13 @@
         status.textContent = `generating… ${elapsed}s`;
       }, 1000);
 
-      // Hard cap: re-enable after 120s with failure message
+      // Hard cap: re-enable after 95s (matches 90s server timeout + buffer)
       setTimeout(() => {
         clearInterval(tick);
         btn.disabled = false;
         btn.textContent = "✨ Generate Now";
-        status.textContent = "no response — check logs or try again";
-      }, 120000);
+        status.textContent = "timed out — check HF token / try again";
+      }, 95000);
 
       // Store tick handle so SSE success can clear it
       btn._tick = tick;

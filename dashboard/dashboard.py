@@ -26,6 +26,130 @@ session_state = {"active": False, "start_time": None, "suspended": False, "mode"
 SCHEDULE_FILE  = os.getenv("SCHEDULE_FILE",  "/app/data/market_schedule.txt")
 FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
+# ── AI Analyst (inline LLM for on-demand generation) ───────────────────────────
+HF_TOKEN  = os.getenv("HF_TOKEN", "")
+HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-3B-Instruct")
+HF_URL    = "https://router.huggingface.co/v1/chat/completions"
+OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+
+
+def _build_market_prompt():
+    with lock:
+        snaps  = dict(bbos)
+        recent = list(trades_cache[:30])
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    sess = ("ACTIVE" if session_state["active"] and not session_state["suspended"]
+            else "SUSPENDED" if session_state["suspended"] else "IDLE")
+
+    if recent:
+        by_sym = {}
+        for t in recent:
+            by_sym.setdefault(t.get("symbol", "?"), []).append(t)
+        trade_lines = []
+        for sym, ts in sorted(by_sym.items()):
+            prices = [float(t.get("price", 0)) for t in ts]
+            vol    = sum(int(t.get("quantity") or t.get("qty") or 0) for t in ts)
+            trade_lines.append(f"  {sym}: {len(ts)} trade(s), range {min(prices):.2f}–{max(prices):.2f}, vol {vol}, last {prices[-1]:.2f}")
+        trades_block = "\n".join(trade_lines)
+    else:
+        trades_block = "  No recent trades"
+
+    if snaps:
+        book_lines = []
+        for sym, s in sorted(snaps.items()):
+            bid, ask = s.get("best_bid"), s.get("best_ask")
+            spread = f"{float(ask)-float(bid):.2f}" if bid and ask else "?"
+            book_lines.append(f"  {sym}: Bid {bid or '-'} / Ask {ask or '-'} (spread {spread})")
+        book_block = "\n".join(book_lines)
+    else:
+        book_block = "  No order book data"
+
+    return (f"You are a concise financial market analyst for a simulated stock exchange.\n"
+            f"Time: {now} | Session: {sess}\n\n"
+            f"Recent trades:\n{trades_block}\n\n"
+            f"Order book:\n{book_block}\n\n"
+            f"In 3-4 sentences: activity level, notable moves, market sentiment. "
+            f"Plain prose, no headers, no bullet points.")
+
+
+def _call_llm(prompt):
+    """Try Ollama first, then HuggingFace router. Returns (text, source) or (None, error_msg)."""
+    # 1. Ollama
+    if OLLAMA_HOST:
+        try:
+            r = requests.post(f"{OLLAMA_HOST}/api/chat",
+                              json={"model": OLLAMA_MODEL,
+                                    "messages": [{"role": "user", "content": prompt}],
+                                    "stream": False},
+                              timeout=90)
+            if r.status_code == 200:
+                text = r.json().get("message", {}).get("content", "").strip()
+                if text:
+                    return text, "Ollama"
+            print(f"[Dashboard/LLM] Ollama {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            print(f"[Dashboard/LLM] Ollama error: {e}")
+
+    # 2. HuggingFace router
+    if not HF_TOKEN:
+        return None, "HF_TOKEN not set"
+    print(f"[Dashboard/LLM] Calling HF router ({HF_MODEL})…")
+    for attempt in range(3):
+        try:
+            r = requests.post(HF_URL,
+                              headers={"Authorization": f"Bearer {HF_TOKEN}",
+                                       "Content-Type": "application/json"},
+                              json={"model": HF_MODEL,
+                                    "messages": [{"role": "user", "content": prompt}],
+                                    "max_tokens": 180,
+                                    "temperature": 0.7},
+                              timeout=90)
+            print(f"[Dashboard/LLM] HF status {r.status_code} (attempt {attempt+1})")
+            if r.status_code == 200:
+                text = r.json()["choices"][0]["message"]["content"].strip()
+                if text:
+                    return text, HF_MODEL
+            elif r.status_code == 503:
+                body = {}
+                try: body = r.json()
+                except: pass
+                wait = min(float(body.get("estimated_time", 20)), 30)
+                print(f"[Dashboard/LLM] Model loading, waiting {wait:.0f}s…")
+                time.sleep(wait)
+            else:
+                print(f"[Dashboard/LLM] HF error body: {r.text[:400]}")
+                return None, f"HF HTTP {r.status_code}: {r.text[:120]}"
+        except requests.exceptions.Timeout:
+            print(f"[Dashboard/LLM] HF timeout (attempt {attempt+1})")
+            return None, "HF request timed out after 90s"
+        except Exception as e:
+            print(f"[Dashboard/LLM] HF exception: {e}")
+            return None, str(e)
+    return None, "HF: max retries exceeded"
+
+
+def _generate_and_broadcast():
+    """Background thread: call LLM, publish result via SSE + Kafka."""
+    prompt = _build_market_prompt()
+    text, source = _call_llm(prompt)
+    if text:
+        insight = {"text": text, "source": source, "timestamp": time.time()}
+        with lock:
+            ai_insights_cache.insert(0, insight)
+            ai_insights_cache[:] = ai_insights_cache[:10]
+        broadcast_event("ai_insight", insight)
+        try:
+            get_producer().send(Config.AI_INSIGHTS_TOPIC, insight)
+        except Exception:
+            pass
+        print(f"[Dashboard/LLM] Insight published ({len(text)} chars, src={source})")
+    else:
+        # Surface the error in the panel
+        err_insight = {"text": f"⚠️ LLM error: {source}", "source": "error", "timestamp": time.time()}
+        broadcast_event("ai_insight", err_insight)
+        print(f"[Dashboard/LLM] LLM failed: {source}")
+
 # ── OHLCV History ──────────────────────────────────────────────────────────────
 HISTORY_DB = os.getenv("HISTORY_DB", "/app/data/dashboard_history.db")
 BUCKET_SIZE = 60  # 1-minute candles
@@ -449,13 +573,8 @@ def session_resume():
 
 @app.route("/session/ai_insight", methods=["POST"])
 def trigger_ai_insight():
-    try:
-        p = get_producer()
-        p.send(Config.CONTROL_TOPIC, {"action": "generate_insight"})
-        p.flush()
-        return jsonify({"status": "ok", "message": "Insight generation triggered"})
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+    threading.Thread(target=_generate_and_broadcast, daemon=True).start()
+    return jsonify({"status": "ok", "message": "Insight generation started"})
 
 
 @app.route("/session/mode", methods=["POST"])
