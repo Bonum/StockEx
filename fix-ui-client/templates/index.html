@@ -30,15 +30,14 @@
       font-size: 12px;
       font-weight: bold;
     }
-    .status .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-    }
-    .status.connected { background: #d4edda; color: #155724; }
+    .status .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .status.connected    { background: #d4edda; color: #155724; }
     .status.connected .dot { background: #28a745; }
     .status.disconnected { background: #f8d7da; color: #721c24; }
     .status.disconnected .dot { background: #dc3545; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .status.connecting   { background: #fff3cd; color: #856404; }
+    .status.connecting .dot { background: #ffc107; animation: pulse 1s infinite; }
 
     /* Buttons */
     .btn-group { display: flex; gap: 8px; margin-top: 10px; }
@@ -49,11 +48,9 @@
       cursor: pointer;
       font-size: 13px;
       font-weight: bold;
-      text-decoration: none;
-      display: inline-block;
     }
-    .btn-connect { background: #28a745; color: #fff; }
-    .btn-connect:hover { background: #218838; }
+    .btn-connect    { background: #28a745; color: #fff; }
+    .btn-connect:hover    { background: #218838; }
     .btn-disconnect { background: #dc3545; color: #fff; }
     .btn-disconnect:hover { background: #c82333; }
 
@@ -87,19 +84,16 @@
     }
     .btn-send:hover { background: #1976D2; }
 
-    /* ── Mobile responsive ───────────────────────────────────────────────────── */
-    @media (max-width: 768px) {
-      body { margin: 10px; }
-      h1 { font-size: 18px; flex-wrap: wrap; gap: 8px; }
-      .container { grid-template-columns: 1fr; }
-      .panel { min-height: unset; }
+    /* Order feedback */
+    #order-status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 10px;
+      display: none;
     }
-
-    @media (max-width: 480px) {
-      body { margin: 6px; }
-      h1 { font-size: 14px; }
-      .btn { font-size: 12px; padding: 6px 12px; }
-    }
+    #order-status.success { background: #d4edda; color: #155724; display: block; }
+    #order-status.error   { background: #f8d7da; color: #721c24; display: block; }
 
     /* Messages box */
     .messages-box {
@@ -115,15 +109,28 @@
       line-height: 1.5;
       min-height: 300px;
     }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+      body { margin: 10px; }
+      h1 { font-size: 18px; flex-wrap: wrap; gap: 8px; }
+      .container { grid-template-columns: 1fr; }
+      .panel { min-height: unset; }
+    }
+    @media (max-width: 480px) {
+      body { margin: 6px; }
+      h1 { font-size: 14px; }
+      .btn { font-size: 12px; padding: 6px 12px; }
+    }
   </style>
 </head>
 <body>
 
   <h1>
     FIX UI Client
-    <span class="status {{ 'connected' if connected else 'disconnected' }}">
+    <span id="status-badge" class="status connecting">
       <span class="dot"></span>
-      <span>{{ 'CONNECTED' if connected else 'DISCONNECTED' }}</span>
+      <span id="status-text">Connecting...</span>
     </span>
     <a href="/" style="margin-left:auto; padding:4px 14px; background:#6c757d; color:#fff; border-radius:20px; font-size:12px; font-weight:bold; text-decoration:none;">← Dashboard</a>
   </h1>
@@ -134,24 +141,24 @@
     <div class="panel">
       <h2>Connection</h2>
       <div class="btn-group">
-        <a href="{{ url_for('connect') }}" class="btn btn-connect">Connect</a>
-        <a href="{{ url_for('disconnect') }}" class="btn btn-disconnect">Disconnect</a>
+        <button onclick="doConnect()" class="btn btn-connect">Connect</button>
+        <button onclick="doDisconnect()" class="btn btn-disconnect">Disconnect</button>
       </div>
 
       <hr class="divider">
 
       <h2>Send Order</h2>
-      <form action="{{ url_for('order') }}" method="post">
+      <form id="orderForm" onsubmit="sendOrder(event)">
         <div class="form-group">
           <label>Side</label>
-          <select name="side">
+          <select id="f-side">
             <option value="buy">BUY</option>
             <option value="sell">SELL</option>
           </select>
         </div>
         <div class="form-group">
           <label>Symbol</label>
-          <select name="symbol">
+          <select id="f-symbol">
             {% for s in securities %}
             <option value="{{ s }}">{{ s }}</option>
             {% endfor %}
@@ -159,24 +166,105 @@
         </div>
         <div class="form-group">
           <label>Quantity</label>
-          <input type="number" step="1" name="qty" value="100">
+          <input id="f-qty" type="number" step="1" value="100">
         </div>
         <div class="form-group">
           <label>Price</label>
-          <input type="number" step="0.01" name="price" value="150.00">
+          <input id="f-price" type="number" step="0.01" value="150.00">
         </div>
         <button type="submit" class="btn-send">Send Order</button>
       </form>
+      <div id="order-status"></div>
     </div>
 
     <!-- Right panel: Messages log -->
     <div class="panel">
       <h2>Messages <span style="font-size:12px; color:#999; font-weight:normal;">FIX Session Log</span></h2>
-      <div class="messages-box">{% for msg in messages %}{{ msg }}
-{% endfor %}</div>
+      <div id="messages-box" class="messages-box">Loading...</div>
     </div>
 
   </div>
+
+  <script>
+    // Works whether served at / or under /fix/
+    const BASE = window.location.pathname === '/' ? ''
+               : window.location.pathname.replace(/\/$/, '');
+
+    function setStatus(cls, text) {
+      document.getElementById('status-badge').className = 'status ' + cls;
+      document.getElementById('status-text').textContent = text;
+    }
+
+    async function pollStatus() {
+      try {
+        const r = await fetch(BASE + '/status');
+        const d = await r.json();
+        setStatus(d.connected ? 'connected' : 'disconnected',
+                  d.connected ? 'CONNECTED' : 'DISCONNECTED');
+      } catch(e) {
+        setStatus('disconnected', 'DISCONNECTED');
+      }
+    }
+
+    async function doConnect() {
+      setStatus('connecting', 'Connecting...');
+      try { await fetch(BASE + '/connect'); } catch(e) {}
+      setTimeout(pollStatus, 2000);
+    }
+
+    async function doDisconnect() {
+      try { await fetch(BASE + '/disconnect'); } catch(e) {}
+      setStatus('disconnected', 'DISCONNECTED');
+    }
+
+    async function sendOrder(evt) {
+      evt.preventDefault();
+      const statusEl = document.getElementById('order-status');
+      const data = {
+        side:   document.getElementById('f-side').value,
+        symbol: document.getElementById('f-symbol').value,
+        qty:    parseFloat(document.getElementById('f-qty').value),
+        price:  parseFloat(document.getElementById('f-price').value),
+      };
+      try {
+        const r = await fetch(BASE + '/order', {
+          method:  'POST',
+          headers: {'Content-Type': 'application/json'},
+          body:    JSON.stringify(data)
+        });
+        const d = await r.json();
+        if (d.status === 'ok') {
+          statusEl.className = 'success';
+          statusEl.textContent = `Order sent: ${data.side.toUpperCase()} ${data.qty} ${data.symbol} @ ${data.price.toFixed(2)}`;
+        } else {
+          statusEl.className = 'error';
+          statusEl.textContent = d.message || 'Error sending order';
+        }
+      } catch(e) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Error: ' + e.message;
+      }
+      setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+    }
+
+    let lastMsgCount = 0;
+    async function pollMessages() {
+      try {
+        const r = await fetch(BASE + '/messages');
+        const msgs = await r.json();
+        if (msgs.length !== lastMsgCount) {
+          const box = document.getElementById('messages-box');
+          box.textContent = msgs.join('\n');
+          lastMsgCount = msgs.length;
+        }
+      } catch(e) {}
+    }
+
+    pollStatus();
+    pollMessages();
+    setInterval(pollStatus,   2000);
+    setInterval(pollMessages, 2000);
+  </script>
 
 </body>
 </html>

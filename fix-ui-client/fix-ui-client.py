@@ -4,7 +4,7 @@ sys.path.insert(0, "/app")
 
 import quickfix as fix
 import quickfix44 as fix44
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, jsonify
 import json
 import threading, time, os
 from collections import deque
@@ -172,25 +172,32 @@ def status():
 @app.route("/connect")
 def connect():
     threading.Thread(target=start_fix, daemon=True).start()
-    return redirect(url_for("index"))
+    return jsonify({"status": "ok", "message": "Connecting..."})
 
 @app.route("/disconnect")
 def disconnect():
     stop_fix()
-    return redirect(url_for("index"))
+    return jsonify({"status": "ok", "message": "Disconnected"})
 
 @app.route("/order", methods=["POST"])
 def order():
     if not fix_app or not fix_app.connected:
         log("⚠️ Tried to send while disconnected")
-        return redirect(url_for("index"))
-    side = request.form.get("side", "buy")
+        return jsonify({"status": "error", "message": "Not connected"}), 400
+    data = request.get_json(force=True) or {}
+    side     = data.get("side", "buy")
     side_tag = "1" if side.lower() == "buy" else "2"
-    symbol = request.form.get("symbol", "FOO")
-    qty = float(request.form.get("qty", "100"))
-    price = float(request.form.get("price", "10"))
+    symbol   = data.get("symbol", "FOO")
+    qty      = float(data.get("qty", 100))
+    price    = float(data.get("price", 10))
     fix_app.send_order(side_tag, symbol, qty, price)
-    return redirect(url_for("index"))
+    return jsonify({"status": "ok", "message": "Order sent"})
+
+@app.route("/messages")
+def messages_route():
+    with _msgs_lock:
+        msgs = list(reversed(_messages))
+    return jsonify(msgs)
 
 # --- Configurable ---
 CONFIG_FILE = os.getenv("FIX_CONFIG", "client.cfg")
