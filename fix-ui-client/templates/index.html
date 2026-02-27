@@ -158,7 +158,7 @@
         </div>
         <div class="form-group">
           <label>Symbol</label>
-          <select id="f-symbol">
+          <select id="f-symbol" onchange="updatePrice()">
             {% for s in securities %}
             <option value="{{ s }}">{{ s }}</option>
             {% endfor %}
@@ -170,7 +170,7 @@
         </div>
         <div class="form-group">
           <label>Price</label>
-          <input id="f-price" type="number" step="0.01" value="150.00">
+          <input id="f-price" type="number" step="0.01" value="">
         </div>
         <button type="submit" class="btn-send">Send Order</button>
       </form>
@@ -186,6 +186,16 @@
   </div>
 
   <script>
+    const SECURITIES_PRICES = {{ securities | tojson }};
+
+    function updatePrice() {
+      const sym = document.getElementById('f-symbol').value;
+      const price = SECURITIES_PRICES[sym];
+      if (price !== undefined) {
+        document.getElementById('f-price').value = price.toFixed(2);
+      }
+    }
+
     // Works whether served at / or under /fix/
     const BASE = window.location.pathname === '/' ? ''
                : window.location.pathname.replace(/\/$/, '');
@@ -264,6 +274,7 @@
     pollMessages();
     setInterval(pollStatus,   2000);
     setInterval(pollMessages, 2000);
+    updatePrice();
   </script>
 
 </body>

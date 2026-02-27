@@ -145,16 +145,20 @@ def stop_fix():
         fix_initiator = None
 
 def load_securities():
-    symbols = []
+    securities = {}
     try:
         with open(Config.SECURITIES_FILE) as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    symbols.append(line.split('\t')[0])
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        securities[parts[0]] = float(parts[2])
+                    elif len(parts) >= 1:
+                        securities[parts[0]] = 10.0
     except Exception:
         pass
-    return symbols or ["ALPHA", "PEIR", "EXAE", "QUEST", "NBG"]
+    return securities or {"ALPHA": 5.65, "PEIR": 8.35, "EXAE": 6.90, "QUEST": 13.35, "NBG": 8.00}
 
 # --- Flask routes ---
 @app.route("/")
