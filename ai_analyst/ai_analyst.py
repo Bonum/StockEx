@@ -11,7 +11,7 @@ from shared.kafka_utils import create_producer, create_consumer
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "")          # e.g. http://host.docker.internal:11434
 OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 HF_TOKEN       = os.getenv("HF_TOKEN", "")
-HF_MODEL       = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct-1M")
+HF_MODEL       = os.getenv("HF_MODEL", "RayMelius/stockex-analyst")
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL     = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
@@ -20,6 +20,16 @@ ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL", "1800"))  # 30 min defaul
 # ── Runtime LLM selection (updated via Kafka "set_llm" control messages) ───────
 _active_provider = "auto"   # "auto" | "ollama" | "groq" | "hf"
 _active_model    = None     # None = use env-var default for chosen provider
+
+# System prompt matching the finetuned model's training
+SYSTEM_PROMPT = (
+    "You are StockEx AI Analyst, an expert in stock market microstructure, "
+    "order book dynamics, and real-time trading analysis for the Athens Stock Exchange. "
+    "When given market data, respond with a single flowing paragraph of natural market "
+    "commentary. Mention specific stocks, prices, trade counts, and volumes where relevant. "
+    "Assess sentiment (bullish/bearish/cautious/neutral) and give a forward-looking observation. "
+    "Do not use bullet points, headers, or JSON. Write like a professional market analyst."
+)
 
 # ── Rolling market data buffers ────────────────────────────────────────────────
 recent_trades     = deque(maxlen=200)
@@ -80,15 +90,20 @@ def call_llm(prompt: str) -> str | None:
         if not HF_TOKEN:
             return None
         m = model or HF_MODEL
-        url = "https://router.huggingface.co/v1/chat/completions"
-        print(f"[AI-Analyst] Calling HF router: model={m}")
+        if m.startswith("RayMelius/") or "/" in m:
+            url = f"https://api-inference.huggingface.co/models/{m}/v1/chat/completions"
+        else:
+            url = "https://router.huggingface.co/v1/chat/completions"
+        print(f"[AI-Analyst] Calling HF: model={m}")
         for attempt in range(3):
             try:
                 resp = requests.post(
                     url,
                     headers={"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"},
-                    json={"model": m, "messages": [{"role": "user", "content": prompt}],
-                          "max_tokens": 220, "temperature": 0.7},
+                    json={"model": m,
+                          "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                                       {"role": "user",   "content": prompt}],
+                          "max_tokens": 300, "temperature": 0.7},
                     timeout=60,
                 )
                 print(f"[AI-Analyst] HF response status: {resp.status_code}")
