@@ -379,14 +379,30 @@
 
   <!-- AI Analyst panel (full width) -->
   <div class="ai-panel">
-    <h2 style="margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:10px;">
+    <h2 style="margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       AI Analyst
       <button id="ai-generate-btn" onclick="triggerAIInsight()"
               style="padding:5px 14px; background:#5c6bc0; color:#fff; border:none; border-radius:12px;
                      font-size:12px; font-weight:bold; cursor:pointer; flex-shrink:0;">
         ✨ Generate Now
       </button>
-      <span id="ai-status" style="font-size:11px; color:#999; font-weight:normal;">waiting for first insight…</span>
+      <!-- LLM selector -->
+      <select id="ai-provider-select" onchange="onProviderChange()"
+              style="padding:4px 8px; border:1px solid #c5cae9; border-radius:8px; font-size:12px;
+                     background:#f8f9ff; color:#3949ab; cursor:pointer; flex-shrink:0;">
+        <option value="auto">Auto</option>
+        <option value="groq">Groq</option>
+        <option value="hf">HuggingFace</option>
+        <option value="ollama">Ollama</option>
+      </select>
+      <select id="ai-model-select" onchange="onModelChange()"
+              style="padding:4px 8px; border:1px solid #c5cae9; border-radius:8px; font-size:12px;
+                     background:#f8f9ff; color:#3949ab; cursor:pointer; flex-shrink:0; max-width:220px;">
+        <option value="">— model —</option>
+      </select>
+      <span id="ai-llm-badge" style="font-size:10px; color:#7986cb; background:#e8eaf6; padding:2px 8px;
+                                      border-radius:10px; white-space:nowrap; flex-shrink:0;"></span>
+      <span id="ai-status" style="font-size:11px; color:#999; font-weight:normal; margin-left:auto;">waiting for first insight…</span>
     </h2>
     <div id="ai-insights-list" style="max-height:220px; overflow-y:auto;">
       <div class="insight-card" style="color:#bbb; border-left-color:#ddd; background:#fafafa;" id="ai-placeholder">
@@ -433,6 +449,80 @@
     // Selected order state
     let selectedOrder = null;
 
+    // ── LLM selector ────────────────────────────────────────────────────────────
+    const LLM_MODELS = { auto: [], groq: [], hf: [], ollama: [] };
+
+    async function loadAIConfig() {
+      try {
+        const r = await fetch("/ai/config");
+        const cfg = await r.json();
+        // Populate model lists from server
+        for (const [p, info] of Object.entries(cfg.providers || {})) {
+          if (info.models && info.models.length) LLM_MODELS[p] = info.models;
+        }
+        // Restore active selection
+        const prov = cfg.active_provider || "auto";
+        document.getElementById("ai-provider-select").value = prov;
+        populateModelDropdown(prov, cfg.active_model);
+        updateLLMBadge(prov, cfg.active_model);
+      } catch(e) { console.warn("Could not load AI config:", e); }
+    }
+
+    function populateModelDropdown(provider, selectedModel) {
+      const sel = document.getElementById("ai-model-select");
+      const models = LLM_MODELS[provider] || [];
+      sel.innerHTML = "";
+      if (provider === "auto" || models.length === 0) {
+        sel.style.display = "none";
+        return;
+      }
+      sel.style.display = "";
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m.split("/").pop(); // show only model name, not org prefix
+        if (m === selectedModel) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      if (!selectedModel) sel.selectedIndex = 0;
+    }
+
+    function updateLLMBadge(provider, model) {
+      const badge = document.getElementById("ai-llm-badge");
+      if (provider === "auto") {
+        badge.textContent = "auto";
+      } else {
+        const name = model ? model.split("/").pop() : "default";
+        badge.textContent = `${provider} / ${name}`;
+      }
+    }
+
+    async function sendLLMSelection(provider, model) {
+      try {
+        await fetch("/ai/select", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, model: model || null }),
+        });
+      } catch(e) { console.warn("Could not update LLM selection:", e); }
+    }
+
+    function onProviderChange() {
+      const provider = document.getElementById("ai-provider-select").value;
+      populateModelDropdown(provider, null);
+      const model = LLM_MODELS[provider]?.[0] || null;
+      updateLLMBadge(provider, model);
+      sendLLMSelection(provider, model);
+    }
+
+    function onModelChange() {
+      const provider = document.getElementById("ai-provider-select").value;
+      const model    = document.getElementById("ai-model-select").value || null;
+      updateLLMBadge(provider, model);
+      sendLLMSelection(provider, model);
+    }
+    // ────────────────────────────────────────────────────────────────────────────
+
     async function triggerAIInsight() {
       const btn    = document.getElementById("ai-generate-btn");
       const status = document.getElementById("ai-status");
@@ -472,7 +562,10 @@
       div.className = "insight-card insight-new";
       if (isErr) div.style.cssText = "border-left-color:#e53935; background:#fff5f5;";
       const t = new Date(insight.timestamp * 1000).toLocaleTimeString();
-      div.innerHTML = `<div class="insight-time">${t}</div><div>${insight.text}</div>`;
+      const srcBadge = insight.source && insight.source !== "error" && insight.source !== "config"
+        ? `<span style="font-size:10px; background:#e8eaf6; color:#5c6bc0; padding:1px 6px; border-radius:8px; margin-left:6px;">${insight.source}</span>`
+        : "";
+      div.innerHTML = `<div class="insight-time">${t}${srcBadge}</div><div>${insight.text}</div>`;
       list.prepend(div);
       while (list.children.length > 10) list.removeChild(list.lastChild);
     }
@@ -1128,6 +1221,15 @@
         insights.forEach(addInsight);
       });
 
+      eventSource.addEventListener("llm_config", (e) => {
+        const cfg = JSON.parse(e.data);
+        const prov = cfg.provider || "auto";
+        const model = cfg.model || null;
+        document.getElementById("ai-provider-select").value = prov;
+        populateModelDropdown(prov, model);
+        updateLLMBadge(prov, model);
+      });
+
       eventSource.addEventListener("ai_insight", (e) => {
         const insight = JSON.parse(e.data);
         addInsight(insight);
@@ -1512,6 +1614,7 @@
     async function init() {
       await fetchData();
       connectSSE();
+      loadAIConfig();
 
       // Refresh order book panel every 3 seconds
       setInterval(() => {

@@ -12,7 +12,14 @@ OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "")          # e.g. http://host.docker
 OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 HF_TOKEN       = os.getenv("HF_TOKEN", "")
 HF_MODEL       = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct-1M")
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL     = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
 ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL", "1800"))  # 30 min default
+
+# ── Runtime LLM selection (updated via Kafka "set_llm" control messages) ───────
+_active_provider = "auto"   # "auto" | "ollama" | "groq" | "hf"
+_active_model    = None     # None = use env-var default for chosen provider
 
 # ── Rolling market data buffers ────────────────────────────────────────────────
 recent_trades     = deque(maxlen=200)
@@ -25,69 +32,104 @@ _suspended = False
 # ── LLM call ──────────────────────────────────────────────────────────────────
 
 def call_llm(prompt: str) -> str | None:
-    """Try Ollama first, fall back to HuggingFace Inference API."""
+    """Route to the active provider (or auto-fallback chain: Ollama → Groq → HF)."""
 
-    # 1. Ollama (local)
-    if OLLAMA_HOST:
+    def _try_ollama(model):
+        if not OLLAMA_HOST:
+            return None
+        m = model or OLLAMA_MODEL
         try:
             resp = requests.post(
                 f"{OLLAMA_HOST}/api/chat",
-                json={
-                    "model":    OLLAMA_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream":   False,
-                },
+                json={"model": m, "messages": [{"role": "user", "content": prompt}], "stream": False},
                 timeout=90,
             )
             if resp.status_code == 200:
                 text = resp.json().get("message", {}).get("content", "").strip()
                 if text:
-                    print(f"[AI-Analyst] Insight via Ollama ({OLLAMA_MODEL})")
+                    print(f"[AI-Analyst] Insight via Ollama ({m})")
                     return text
-            else:
-                print(f"[AI-Analyst] Ollama HTTP {resp.status_code}: {resp.text[:200]}")
+            print(f"[AI-Analyst] Ollama HTTP {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
-            print(f"[AI-Analyst] Ollama unreachable: {e}")
+            print(f"[AI-Analyst] Ollama error: {e}")
+        return None
 
-    # 2. HuggingFace Inference API — router.huggingface.co (OpenAI-compatible)
-    if HF_TOKEN:
+    def _try_groq(model):
+        if not GROQ_API_KEY:
+            return None
+        m = model or GROQ_MODEL
+        try:
+            resp = requests.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={"model": m, "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": 300, "temperature": 0.7},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                text = resp.json()["choices"][0]["message"]["content"].strip()
+                if text:
+                    print(f"[AI-Analyst] Insight via Groq ({m})")
+                    return text
+            print(f"[AI-Analyst] Groq HTTP {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            print(f"[AI-Analyst] Groq error: {e}")
+        return None
+
+    def _try_hf(model):
+        if not HF_TOKEN:
+            return None
+        m = model or HF_MODEL
         url = "https://router.huggingface.co/v1/chat/completions"
-        print(f"[AI-Analyst] Calling HF router: model={HF_MODEL}")
+        print(f"[AI-Analyst] Calling HF router: model={m}")
         for attempt in range(3):
             try:
                 resp = requests.post(
                     url,
-                    headers={
-                        "Authorization": f"Bearer {HF_TOKEN}",
-                        "Content-Type":  "application/json",
-                    },
-                    json={
-                        "model":       HF_MODEL,
-                        "messages":    [{"role": "user", "content": prompt}],
-                        "max_tokens":  220,
-                        "temperature": 0.7,
-                    },
+                    headers={"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"},
+                    json={"model": m, "messages": [{"role": "user", "content": prompt}],
+                          "max_tokens": 220, "temperature": 0.7},
                     timeout=60,
                 )
                 print(f"[AI-Analyst] HF response status: {resp.status_code}")
                 if resp.status_code == 200:
                     text = resp.json()["choices"][0]["message"]["content"].strip()
                     if text:
-                        print(f"[AI-Analyst] Insight via HuggingFace ({HF_MODEL})")
+                        print(f"[AI-Analyst] Insight via HuggingFace ({m})")
                         return text
                 elif resp.status_code == 503:
                     body = resp.json() if resp.content else {}
-                    wait = body.get("estimated_time", 20)
+                    wait = min(float(body.get("estimated_time", 20)), 30)
                     print(f"[AI-Analyst] HF model loading, waiting {wait:.0f}s (attempt {attempt+1}/3)")
-                    time.sleep(min(float(wait), 30))
+                    time.sleep(wait)
                 else:
                     print(f"[AI-Analyst] HF HTTP {resp.status_code}: {resp.text[:400]}")
                     break
             except Exception as e:
                 print(f"[AI-Analyst] HF API error (attempt {attempt+1}/3): {e}")
                 break
+        return None
 
-    return None
+    provider = _active_provider
+    model    = _active_model
+
+    if provider == "ollama":
+        return _try_ollama(model)
+    if provider == "groq":
+        return _try_groq(model)
+    if provider == "hf":
+        return _try_hf(model)
+
+    # Auto fallback chain
+    if OLLAMA_HOST:
+        text = _try_ollama(model)
+        if text:
+            return text
+    if GROQ_API_KEY:
+        text = _try_groq(model)
+        if text:
+            return text
+    return _try_hf(model)
 
 
 # ── Prompt builder ─────────────────────────────────────────────────────────────
@@ -166,7 +208,7 @@ def run_immediate_analysis(producer):
 # ── Kafka consumer (market data) ──────────────────────────────────────────────
 
 def consume_market_data(producer):
-    global _running, _suspended
+    global _running, _suspended, _active_provider, _active_model
     consumer = create_consumer(
         topics=[
             Config.TRADES_TOPIC,
@@ -199,6 +241,11 @@ def consume_market_data(producer):
                     _suspended = False
                 elif action == "generate_insight":
                     threading.Thread(target=run_immediate_analysis, args=(producer,), daemon=True).start()
+                elif action == "set_llm":
+                    _active_provider = msg.value.get("provider", "auto")
+                    _active_model    = msg.value.get("model") or None
+                    label = f"{_active_provider}/{_active_model}" if _active_model else _active_provider
+                    print(f"[AI-Analyst] LLM switched to: {label}")
 
 
 # ── Analysis loop ──────────────────────────────────────────────────────────────
@@ -207,10 +254,13 @@ def analysis_loop(producer):
     print(f"[AI-Analyst] Analysis loop started (interval={ANALYSIS_INTERVAL}s)")
     if OLLAMA_HOST:
         print(f"[AI-Analyst] Ollama: {OLLAMA_HOST}  model: {OLLAMA_MODEL}")
+    if GROQ_API_KEY:
+        print(f"[AI-Analyst] Groq model: {GROQ_MODEL}")
     if HF_TOKEN:
         print(f"[AI-Analyst] HuggingFace fallback: model={HF_MODEL}")
-    if not OLLAMA_HOST and not HF_TOKEN:
-        print("[AI-Analyst] WARNING: neither OLLAMA_HOST nor HF_TOKEN configured — no insights will be generated")
+    if not OLLAMA_HOST and not GROQ_API_KEY and not HF_TOKEN:
+        print("[AI-Analyst] WARNING: no LLM configured — no insights will be generated")
+    print(f"[AI-Analyst] Active provider: {_active_provider} (send Kafka 'set_llm' to change)")
 
     while True:
         time.sleep(ANALYSIS_INTERVAL)

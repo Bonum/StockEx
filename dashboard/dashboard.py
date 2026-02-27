@@ -28,13 +28,32 @@ FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
 # ── AI Analyst (inline LLM for on-demand generation) ───────────────────────────
 HF_TOKEN  = os.getenv("HF_TOKEN", "")
-HF_MODEL  = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+HF_MODEL  = os.getenv("HF_MODEL", "RayMelius/stockex-analyst")
 HF_URL    = "https://router.huggingface.co/v1/chat/completions"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+
+# Known model lists for the dynamic selector UI
+GROQ_MODELS = [
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+]
+HF_MODELS = [
+    "RayMelius/stockex-analyst",
+    "Qwen/Qwen2.5-7B-Instruct-1M",
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+]
+
+# Runtime LLM selection (overrides env var defaults when set via /ai/select)
+_active_provider = "auto"   # "auto" | "ollama" | "groq" | "hf"
+_active_model    = None     # str override or None = use env var default
 
 
 def _build_market_prompt():
@@ -76,91 +95,111 @@ def _build_market_prompt():
             f"Plain prose, no headers, no bullet points.")
 
 
-def _call_llm(prompt):
-    """Try Ollama first, then HuggingFace router. Returns (text, source) or (None, error_msg)."""
-    # 1. Ollama
-    if OLLAMA_HOST:
+def _call_llm(prompt, force_provider=None, force_model=None):
+    """Call LLM. Returns (text, source) or (None, error_msg).
+    force_provider: "auto"|"ollama"|"groq"|"hf"|None  — selects which provider to use.
+    force_model:    override the default model name for the chosen provider.
+    When force_provider is "auto" or None, falls back through Ollama -> Groq -> HF.
+    """
+    provider = force_provider or "auto"
+
+    def _try_ollama(model):
+        if not OLLAMA_HOST:
+            return None, "Ollama not configured (OLLAMA_HOST not set)"
+        m = model or OLLAMA_MODEL
         try:
             r = requests.post(f"{OLLAMA_HOST}/api/chat",
-                              json={"model": OLLAMA_MODEL,
-                                    "messages": [{"role": "user", "content": prompt}],
+                              json={"model": m, "messages": [{"role": "user", "content": prompt}],
                                     "stream": False},
                               timeout=90)
             if r.status_code == 200:
                 text = r.json().get("message", {}).get("content", "").strip()
                 if text:
-                    return text, "Ollama"
-            print(f"[Dashboard/LLM] Ollama {r.status_code}: {r.text[:200]}")
+                    return text, f"Ollama/{m}"
+            return None, f"Ollama HTTP {r.status_code}: {r.text[:200]}"
         except Exception as e:
-            print(f"[Dashboard/LLM] Ollama error: {e}")
+            return None, f"Ollama error: {e}"
 
-    # 2. Groq (free, fast)
-    if GROQ_API_KEY:
+    def _try_groq(model):
+        if not GROQ_API_KEY:
+            return None, "Groq not configured (GROQ_API_KEY not set)"
+        m = model or GROQ_MODEL
         try:
             r = requests.post(GROQ_URL,
                               headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                                        "Content-Type": "application/json"},
-                              json={"model": GROQ_MODEL,
-                                    "messages": [{"role": "user", "content": prompt}],
-                                    "max_tokens": 180,
-                                    "temperature": 0.7},
+                              json={"model": m, "messages": [{"role": "user", "content": prompt}],
+                                    "max_tokens": 300, "temperature": 0.7},
                               timeout=30)
             print(f"[Dashboard/LLM] Groq status {r.status_code}")
             if r.status_code == 200:
                 text = r.json()["choices"][0]["message"]["content"].strip()
                 if text:
-                    return text, f"Groq/{GROQ_MODEL}"
-            else:
-                print(f"[Dashboard/LLM] Groq error: {r.text[:200]}")
+                    return text, f"Groq/{m}"
+            return None, f"Groq HTTP {r.status_code}: {r.text[:200]}"
         except Exception as e:
-            print(f"[Dashboard/LLM] Groq exception: {e}")
+            return None, f"Groq error: {e}"
 
-    # 3. HuggingFace router
-    if not HF_TOKEN:
-        return None, "No LLM configured. Set GROQ_API_KEY (free at console.groq.com) or HF_TOKEN."
-    print(f"[Dashboard/LLM] Calling HF router ({HF_MODEL})…")
-    for attempt in range(3):
-        try:
-            r = requests.post(HF_URL,
-                              headers={"Authorization": f"Bearer {HF_TOKEN}",
-                                       "Content-Type": "application/json"},
-                              json={"model": HF_MODEL,
-                                    "messages": [{"role": "user", "content": prompt}],
-                                    "max_tokens": 180,
-                                    "temperature": 0.7},
-                              timeout=90)
-            print(f"[Dashboard/LLM] HF status {r.status_code} (attempt {attempt+1})")
-            if r.status_code == 200:
-                text = r.json()["choices"][0]["message"]["content"].strip()
-                if text:
-                    return text, HF_MODEL
-            elif r.status_code == 503:
-                body = {}
-                try: body = r.json()
-                except: pass
-                wait = min(float(body.get("estimated_time", 20)), 30)
-                print(f"[Dashboard/LLM] Model loading, waiting {wait:.0f}s…")
-                time.sleep(wait)
-            else:
-                print(f"[Dashboard/LLM] HF error body: {r.text[:400]}")
-                try:
-                    err_code = r.json().get("error", {}).get("code", "")
-                except Exception:
-                    err_code = ""
-                if r.status_code == 402 or "credit" in r.text.lower() or "depleted" in r.text.lower():
-                    return None, ("HF credit balance depleted. Add GROQ_API_KEY secret instead "
-                                  "(free at console.groq.com — 14,400 req/day).")
-                if err_code == "model_not_supported" or "provider" in r.text.lower():
-                    return None, (f"Model '{HF_MODEL}' not available on any enabled provider. "
-                                  "Set HF_MODEL secret to a supported model (e.g. Qwen/Qwen2.5-7B-Instruct).")
-                return None, f"HF HTTP {r.status_code}: {r.text[:120]}"
-        except requests.exceptions.Timeout:
-            print(f"[Dashboard/LLM] HF timeout (attempt {attempt+1})")
-            return None, "HF request timed out after 90s"
-        except Exception as e:
-            print(f"[Dashboard/LLM] HF exception: {e}")
-            return None, str(e)
-    return None, "HF: max retries exceeded"
+    def _try_hf(model):
+        if not HF_TOKEN:
+            return None, "HuggingFace not configured (HF_TOKEN not set)"
+        m = model or HF_MODEL
+        # Use direct inference API for custom models, router for known public models
+        if m.startswith("RayMelius/") or "/" in m.split("/")[0]:
+            url = f"https://api-inference.huggingface.co/models/{m}/v1/chat/completions"
+        else:
+            url = HF_URL
+        print(f"[Dashboard/LLM] Calling HF ({m})...")
+        for attempt in range(3):
+            try:
+                r = requests.post(url,
+                                  headers={"Authorization": f"Bearer {HF_TOKEN}",
+                                           "Content-Type": "application/json"},
+                                  json={"model": m,
+                                        "messages": [{"role": "user", "content": prompt}],
+                                        "max_tokens": 300, "temperature": 0.7},
+                                  timeout=90)
+                print(f"[Dashboard/LLM] HF status {r.status_code} (attempt {attempt+1})")
+                if r.status_code == 200:
+                    text = r.json()["choices"][0]["message"]["content"].strip()
+                    if text:
+                        return text, m
+                elif r.status_code == 503:
+                    body = {}
+                    try: body = r.json()
+                    except: pass
+                    wait = min(float(body.get("estimated_time", 20)), 30)
+                    print(f"[Dashboard/LLM] Model loading, waiting {wait:.0f}s...")
+                    time.sleep(wait)
+                else:
+                    print(f"[Dashboard/LLM] HF error: {r.text[:400]}")
+                    if r.status_code == 402 or "credit" in r.text.lower() or "depleted" in r.text.lower():
+                        return None, "HF credit depleted. Add GROQ_API_KEY (free at console.groq.com)."
+                    return None, f"HF HTTP {r.status_code}: {r.text[:120]}"
+            except requests.exceptions.Timeout:
+                return None, "HF request timed out after 90s"
+            except Exception as e:
+                return None, f"HF error: {e}"
+        return None, "HF: max retries exceeded"
+
+    # Route to chosen provider or auto-fallback chain
+    if provider == "ollama":
+        return _try_ollama(force_model)
+    if provider == "groq":
+        return _try_groq(force_model)
+    if provider == "hf":
+        return _try_hf(force_model)
+
+    # Auto: Ollama -> Groq -> HF
+    if OLLAMA_HOST:
+        text, src = _try_ollama(force_model)
+        if text:
+            return text, src
+    if GROQ_API_KEY:
+        text, src = _try_groq(force_model)
+        if text:
+            return text, src
+    return _try_hf(force_model)
 
 
 def _generate_and_broadcast():
@@ -171,7 +210,7 @@ def _generate_and_broadcast():
         return
 
     prompt = _build_market_prompt()
-    text, source = _call_llm(prompt)
+    text, source = _call_llm(prompt, force_provider=_active_provider, force_model=_active_model)
     if text:
         insight = {"text": text, "source": source, "timestamp": time.time()}
         with lock:
@@ -613,6 +652,51 @@ def session_resume():
 def trigger_ai_insight():
     threading.Thread(target=_generate_and_broadcast, daemon=True).start()
     return jsonify({"status": "ok", "message": "Insight generation started"})
+
+
+@app.route("/ai/config")
+def ai_config():
+    """Return available providers/models and the current active selection."""
+    return jsonify({
+        "active_provider": _active_provider,
+        "active_model":    _active_model,
+        "providers": {
+            "auto":   {"label": "Auto (fallback chain)", "models": []},
+            "groq":   {"label": "Groq",                 "models": GROQ_MODELS,
+                       "available": bool(GROQ_API_KEY)},
+            "hf":     {"label": "HuggingFace",          "models": HF_MODELS,
+                       "available": bool(HF_TOKEN)},
+            "ollama": {"label": "Ollama (local)",        "models": [OLLAMA_MODEL] if OLLAMA_HOST else [],
+                       "available": bool(OLLAMA_HOST)},
+        },
+    })
+
+
+@app.route("/ai/select", methods=["POST"])
+def ai_select():
+    """Dynamically switch the LLM provider/model used for AI insights."""
+    global _active_provider, _active_model
+    data = request.get_json(force=True, silent=True) or {}
+    provider = data.get("provider", "auto")
+    model    = data.get("model") or None
+
+    allowed = {"auto", "groq", "hf", "ollama"}
+    if provider not in allowed:
+        return jsonify({"status": "error", "error": f"Unknown provider '{provider}'"}), 400
+
+    _active_provider = provider
+    _active_model    = model
+    label = f"{provider}/{model}" if model else provider
+    print(f"[Dashboard/LLM] Provider switched to: {label}")
+    broadcast_event("llm_config", {"provider": _active_provider, "model": _active_model})
+    # Propagate selection to ai_analyst service via Kafka control topic
+    try:
+        p = get_producer()
+        p.send(Config.CONTROL_TOPIC, {"action": "set_llm", "provider": provider, "model": model})
+        p.flush()
+    except Exception as e:
+        print(f"[Dashboard/LLM] Could not publish set_llm to Kafka: {e}")
+    return jsonify({"status": "ok", "provider": _active_provider, "model": _active_model})
 
 
 @app.route("/ai/debug")
