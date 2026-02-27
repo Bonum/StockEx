@@ -46,7 +46,7 @@ GROQ_MODELS = [
 ]
 HF_MODELS = [
     "RayMelius/stockex-analyst",
-    "Qwen/Qwen2.5-7B-Instruct-1M",
+    "Qwen/Qwen2.5-7B-Instruct",
     "meta-llama/Llama-3.1-8B-Instruct",
     "mistralai/Mistral-7B-Instruct-v0.3",
 ]
@@ -144,8 +144,8 @@ def _call_llm(prompt, force_provider=None, force_model=None):
         if not HF_TOKEN:
             return None, "HuggingFace not configured (HF_TOKEN not set)"
         m = model or HF_MODEL
-        # Use direct inference API for custom models, router for known public models
-        if m.startswith("RayMelius/") or "/" in m.split("/")[0]:
+        # Use direct inference API for any org/model format; router for bare model names
+        if "/" in m:
             url = f"https://api-inference.huggingface.co/models/{m}/v1/chat/completions"
         else:
             url = HF_URL
