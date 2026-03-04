@@ -73,6 +73,9 @@ COPY client_hf.cfg                    /app/fix_ui/client_hf.cfg
 # AI Analyst service
 COPY ai_analyst/ai_analyst.py         /app/ai_analyst.py
 
+# Clearing House service
+COPY clearing_house/                  /app/clearing_house/
+
 # ── Kafka KRaft configuration ─────────────────────────────────────────────────
 COPY kafka-kraft.properties           /opt/kafka/config/kraft/server.properties
 

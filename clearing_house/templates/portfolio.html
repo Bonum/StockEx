@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}{{ member }} Portfolio — StockEx Clearing House{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin:0;">{{ member }} — Portfolio</h1>
+  <div style="display:flex; gap:12px; align-items:center;">
+    <span style="color:var(--muted); font-size:12px;">
+      Obligation:
+      <strong class="{{ 'positive' if daily.total_securities >= obligation else 'negative' }}">
+        {{ daily.total_securities }}/{{ obligation }}
+      </strong> securities
+    </span>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="grid-3" style="margin-bottom:20px;">
+  <div class="card stat">
+    <div class="val">€{{ "{:,.2f}".format(capital) }}</div>
+    <div class="lbl">Available Cash</div>
+  </div>
+  <div class="card stat">
+    <div class="val">€{{ "{:,.2f}".format(total_value) }}</div>
+    <div class="lbl">Total Portfolio Value</div>
+  </div>
+  <div class="card stat">
+    <div class="val {{ 'positive' if total_pnl >= 0 else 'negative' }}">
+      {{ '+' if total_pnl >= 0 else '' }}€{{ "{:,.2f}".format(total_pnl) }}
+    </div>
+    <div class="lbl">Total P&amp;L</div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Holdings -->
+  <div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div style="padding:16px 20px 12px; border-bottom:1px solid var(--border);">
+        <h2 style="margin:0;">Holdings</h2>
+      </div>
+      {% if holdings %}
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th style="text-align:right">Qty</th>
+            <th style="text-align:right">Avg Cost</th>
+            <th style="text-align:right">Price</th>
+            <th style="text-align:right">Value</th>
+            <th style="text-align:right">P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in holdings %}
+          <tr>
+            <td><strong>{{ h.symbol }}</strong></td>
+            <td style="text-align:right">{{ h.quantity }}</td>
+            <td style="text-align:right">€{{ "%.2f"|format(h.avg_cost) }}</td>
+            <td style="text-align:right">€{{ "%.2f"|format(h.current_price) }}</td>
+            <td style="text-align:right">€{{ "{:,.2f}".format(h.value) }}</td>
+            <td style="text-align:right" class="{{ 'positive' if h.unrealized_pnl >= 0 else 'negative' }}">
+              {{ '+' if h.unrealized_pnl >= 0 else '' }}€{{ "%.2f"|format(h.unrealized_pnl) }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="padding:20px; color:var(--muted); text-align:center;">No holdings</p>
+      {% endif %}
+    </div>
+
+    <!-- Settlement history -->
+    {% if settlements %}
+    <div class="card" style="padding:0; overflow:hidden; margin-top:20px;">
+      <div style="padding:16px 20px 12px; border-bottom:1px solid var(--border);">
+        <h2 style="margin:0;">Settlement History</h2>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th style="text-align:right">Closing Capital</th>
+            <th style="text-align:right">Unrealized P&amp;L</th>
+            <th style="text-align:center">Obligation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in settlements %}
+          <tr>
+            <td>{{ s.trading_date }}</td>
+            <td style="text-align:right">€{{ "{:,.2f}".format(s.closing_capital) }}</td>
+            <td style="text-align:right" class="{{ 'positive' if s.unrealized_pnl >= 0 else 'negative' }}">
+              {{ '+' if s.unrealized_pnl >= 0 else '' }}€{{ "%.2f"|format(s.unrealized_pnl) }}
+            </td>
+            <td style="text-align:center">
+              {% if s.obligation_met %}
+                <span class="badge-ok">Met</span>
+              {% else %}
+                <span class="badge-bad">Not met</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right column: Order entry + Trade history -->
+  <div>
+    <!-- Order entry -->
+    <div class="card">
+      <h2>Submit Order</h2>
+      <div id="order-msg" style="display:none;" class="flash"></div>
+      <form id="order-form">
+        <div class="form-group">
+          <label>Symbol</label>
+          <select name="symbol" id="symbol" required>
+            {% for s in symbols %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label>Side</label>
+            <select name="side" id="side" required>
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Quantity</label>
+            <input type="number" name="quantity" id="quantity" min="1" value="100" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Limit Price (€)</label>
+          <input type="number" name="price" id="price" min="0.01" step="0.05" value="" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Submit Order</button>
+      </form>
+    </div>
+
+    <!-- Today's trades -->
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div style="padding:16px 20px 12px; border-bottom:1px solid var(--border);">
+        <h2 style="margin:0;">Today's Trades</h2>
+      </div>
+      {% if trades %}
+      <table id="trades-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Symbol</th>
+            <th style="text-align:center">Side</th>
+            <th style="text-align:right">Qty</th>
+            <th style="text-align:right">Price</th>
+            <th style="text-align:right">Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in trades %}
+          <tr>
+            <td style="color:var(--muted); font-size:11px;">
+              {{ t.timestamp | ts }}
+            </td>
+            <td><strong>{{ t.symbol }}</strong></td>
+            <td style="text-align:center">
+              <span class="{{ 'positive' if t.side == 'BUY' else 'negative' }}">{{ t.side }}</span>
+            </td>
+            <td style="text-align:right">{{ t.quantity }}</td>
+            <td style="text-align:right">€{{ "%.2f"|format(t.price) }}</td>
+            <td style="text-align:right">€{{ "{:,.2f}".format(t.quantity * t.price) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="padding:20px; color:var(--muted); text-align:center;">No trades today</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+// Order form submission
+document.getElementById('order-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const msg = document.getElementById('order-msg');
+  const data = {
+    symbol:   document.getElementById('symbol').value,
+    side:     document.getElementById('side').value,
+    quantity: parseInt(document.getElementById('quantity').value),
+    price:    parseFloat(document.getElementById('price').value),
+  };
+  try {
+    const resp = await fetch('/ch/order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const result = await resp.json();
+    msg.style.display = 'block';
+    if (resp.ok) {
+      msg.className = 'flash';
+      msg.style.background = 'rgba(63,185,80,.12)';
+      msg.style.border = '1px solid var(--green)';
+      msg.style.color = 'var(--green)';
+      msg.textContent = `Order submitted: ${data.side} ${data.quantity} ${data.symbol} @ €${data.price}`;
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      msg.className = 'flash flash-error';
+      msg.textContent = result.error || 'Order failed';
+    }
+  } catch(err) {
+    msg.style.display = 'block';
+    msg.className = 'flash flash-error';
+    msg.textContent = 'Network error';
+  }
+});
+
+// Auto-refresh portfolio every 15 seconds
+setInterval(async () => {
+  try {
+    const resp = await fetch('/ch/api/portfolio');
+    if (!resp.ok) return;
+    const d = await resp.json();
+    // Just reload the page for simplicity
+    // (A production app would do a DOM patch)
+  } catch(e) {}
+}, 15000);
+{% endblock %}

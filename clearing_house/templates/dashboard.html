@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard — StockEx Clearing House{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin:0;">Clearing House Leaderboard</h1>
+  <span style="color:var(--muted); font-size:12px;" id="last-update">Live</span>
+</div>
+
+<!-- Summary stats -->
+<div class="grid-3" style="margin-bottom:20px;">
+  {% set total_capital = leaderboard | sum(attribute='capital') %}
+  {% set met_count = leaderboard | selectattr('obligation_met') | list | length %}
+  <div class="card stat">
+    <div class="val">{{ leaderboard | length }}</div>
+    <div class="lbl">Active Members</div>
+  </div>
+  <div class="card stat">
+    <div class="val positive">{{ met_count }}</div>
+    <div class="lbl">Obligation Met Today</div>
+  </div>
+  <div class="card stat">
+    <div class="val">€{{ "{:,.0f}".format(total_capital) }}</div>
+    <div class="lbl">Total Capital in Market</div>
+  </div>
+</div>
+
+<!-- Leaderboard table -->
+<div class="card" style="padding:0; overflow:hidden;">
+  <table id="lb-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Member</th>
+        <th>Type</th>
+        <th style="text-align:right">Capital</th>
+        <th style="text-align:right">Holdings Value</th>
+        <th style="text-align:right">Total Value</th>
+        <th style="text-align:right">P&amp;L</th>
+        <th style="text-align:center">Buys</th>
+        <th style="text-align:center">Sells</th>
+        <th style="text-align:center">Securities</th>
+        <th style="text-align:center">Obligation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in leaderboard %}
+      <tr data-member="{{ row.member_id }}">
+        <td style="color:var(--muted)">{{ row.rank }}</td>
+        <td><strong>{{ row.member_id }}</strong></td>
+        <td>
+          {% if row.is_human %}
+            <span class="badge-human">Human</span>
+          {% else %}
+            <span class="badge-ai">AI</span>
+          {% endif %}
+        </td>
+        <td style="text-align:right">€{{ "{:,.2f}".format(row.capital) }}</td>
+        <td style="text-align:right">€{{ "{:,.2f}".format(row.holdings_value) }}</td>
+        <td style="text-align:right"><strong>€{{ "{:,.2f}".format(row.total_value) }}</strong></td>
+        <td style="text-align:right" class="{{ 'positive' if row.pnl >= 0 else 'negative' }}">
+          {{ '+' if row.pnl >= 0 else '' }}€{{ "{:,.2f}".format(row.pnl) }}
+        </td>
+        <td style="text-align:center">{{ row.buy_count }}</td>
+        <td style="text-align:center">{{ row.sell_count }}</td>
+        <td style="text-align:center">{{ row.total_securities }}</td>
+        <td style="text-align:center">
+          {% if row.obligation_met %}
+            <span class="badge-ok">✓ Met ({{ obligation }})</span>
+          {% else %}
+            <span class="badge-bad">{{ row.total_securities }}/{{ obligation }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p style="color:var(--muted); font-size:11px; margin-top:8px;">
+  Daily obligation: each member must trade at least {{ obligation }} securities.
+  Holdings value is calculated at current market mid-price.
+  Refreshes every 10 seconds.
+</p>
+{% endblock %}
+
+{% block extra_scripts %}
+// Auto-refresh leaderboard every 10 seconds
+let refreshTimer = setInterval(refreshLeaderboard, 10000);
+
+async function refreshLeaderboard() {
+  try {
+    const resp = await fetch('/ch/api/leaderboard');
+    if (!resp.ok) return;
+    const rows = await resp.json();
+    const tbody = document.querySelector('#lb-table tbody');
+    tbody.innerHTML = '';
+    rows.forEach(row => {
+      const pnlClass = row.pnl >= 0 ? 'positive' : 'negative';
+      const pnlSign  = row.pnl >= 0 ? '+' : '';
+      const oblBadge = row.obligation_met
+        ? `<span class="badge-ok">✓ Met ({{ obligation }})</span>`
+        : `<span class="badge-bad">${row.total_securities}/{{ obligation }}</span>`;
+      const typeBadge = row.is_human
+        ? `<span class="badge-human">Human</span>`
+        : `<span class="badge-ai">AI</span>`;
+      tbody.innerHTML += `
+        <tr data-member="${row.member_id}">
+          <td style="color:var(--muted)">${row.rank}</td>
+          <td><strong>${row.member_id}</strong></td>
+          <td>${typeBadge}</td>
+          <td style="text-align:right">€${fmt(row.capital)}</td>
+          <td style="text-align:right">€${fmt(row.holdings_value)}</td>
+          <td style="text-align:right"><strong>€${fmt(row.total_value)}</strong></td>
+          <td style="text-align:right" class="${pnlClass}">${pnlSign}€${fmt(row.pnl)}</td>
+          <td style="text-align:center">${row.buy_count}</td>
+          <td style="text-align:center">${row.sell_count}</td>
+          <td style="text-align:center">${row.total_securities}</td>
+          <td style="text-align:center">${oblBadge}</td>
+        </tr>`;
+    });
+    document.getElementById('last-update').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) { /* ignore */ }
+}
+
+function fmt(n) {
+  return Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+{% endblock %}

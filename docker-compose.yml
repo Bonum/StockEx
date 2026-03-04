@@ -181,6 +181,36 @@ services:
       - FRONTEND_URL=http://localhost:5000
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_MODEL=${HF_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      - CH_SERVICE_URL=http://clearing_house:5004
+
+  clearing_house:
+    build:
+      context: .
+      dockerfile: clearing_house/Dockerfile
+    container_name: clearing_house
+    ports:
+      - "5004:5004"
+    volumes:
+      - ./shared:/app/shared
+      - ./shared_data:/app/shared_data   # securities.txt read-only
+      - ch_data:/app/data                # clearing_house.db persistence
+    depends_on:
+      - kafka
+      - matcher
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - MATCHER_URL=http://matcher:6000
+      - SECURITIES_FILE=/app/shared_data/securities.txt
+      - CH_DB_PATH=/app/data/clearing_house.db
+      - CH_PORT=5004
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_MODEL=${HF_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
+      - OLLAMA_HOST=${OLLAMA_HOST:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   matcher_data:  # Persists SQLite database across container restarts
+  ch_data:       # Persists Clearing House SQLite DB and securities file

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}StockEx Clearing House{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --bg2:       #161b22;
+      --bg3:       #21262d;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --yellow:    #d29922;
+      --blue:      #58a6ff;
+      --purple:    #bc8cff;
+      --accent:    #1f6feb;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+      font-size: 13px;
+      min-height: 100vh;
+    }
+
+    /* ── Nav ── */
+    nav {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    nav .brand {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--blue);
+      text-decoration: none;
+      letter-spacing: 0.5px;
+    }
+    nav .brand span { color: var(--muted); font-weight: 400; }
+    nav .nav-links { display: flex; gap: 16px; flex: 1; }
+    nav .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: color .15s, background .15s;
+    }
+    nav .nav-links a:hover { color: var(--text); background: var(--bg3); }
+    nav .nav-links a.active { color: var(--text); }
+    nav .nav-right { display: flex; align-items: center; gap: 12px; }
+    nav .member-badge {
+      background: var(--accent);
+      color: #fff;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    nav form { display: inline; }
+    nav button.logout {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 4px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    nav button.logout:hover { border-color: var(--red); color: var(--red); }
+    nav a.login-btn {
+      background: var(--accent);
+      color: #fff;
+      padding: 5px 14px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* ── Layout ── */
+    main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
+    h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      text-align: left;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg3); }
+
+    /* ── Utilities ── */
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .neutral  { color: var(--muted); }
+    .badge-ok  { background: rgba(63,185,80,.15); color: var(--green); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-bad { background: rgba(248,81,73,.12); color: var(--red);   padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-ai  { background: rgba(188,140,255,.15); color: var(--purple); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-human { background: rgba(88,166,255,.15); color: var(--blue); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-block;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      font-weight: 600;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-danger  { background: var(--red); color: #fff; }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+    /* ── Forms ── */
+    .form-group { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+    input, select {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* ── Flash messages ── */
+    .flash { padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+    .flash-error { background: rgba(248,81,73,.12); border: 1px solid var(--red); color: var(--red); }
+
+    /* ── Grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    @media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+    /* ── Stat tiles ── */
+    .stat { text-align: center; }
+    .stat .val { font-size: 24px; font-weight: 700; }
+    .stat .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 12px 20px;
+      border-radius: 8px;
+      display: none;
+      z-index: 999;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/ch/" class="brand">StockEx <span>/ Clearing House</span></a>
+    <div class="nav-links">
+      <a href="/ch/" class="{{ 'active' if request.path == '/ch/' else '' }}">Leaderboard</a>
+      {% if member %}
+      <a href="/ch/portfolio" class="{{ 'active' if '/portfolio' in request.path else '' }}">My Portfolio</a>
+      {% endif %}
+      <a href="/" target="_blank">Main Dashboard ↗</a>
+    </div>
+    <div class="nav-right">
+      {% if member %}
+        <span class="member-badge">{{ member }}</span>
+        <form action="/ch/logout" method="post">
+          <button class="logout" type="submit">Logout</button>
+        </form>
+      {% else %}
+        <a href="/ch/login" class="login-btn">Login</a>
+      {% endif %}
+    </div>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <div id="toast"></div>
+
+  <script>
+    // SSE for real-time updates
+    const es = new EventSource('/ch/stream');
+    const toast = document.getElementById('toast');
+
+    function showToast(msg, ms=3000) {
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, ms);
+    }
+
+    es.addEventListener('eod_settlement', () => {
+      showToast('EOD Settlement complete — page refreshing…', 2000);
+      setTimeout(() => location.reload(), 2200);
+    });
+
+    es.addEventListener('member_login', e => {
+      const d = JSON.parse(e.data);
+      showToast(`${d.member_id} logged in`);
+    });
+
+    {% block extra_scripts %}{% endblock %}
+  </script>
+</body>
+</html>

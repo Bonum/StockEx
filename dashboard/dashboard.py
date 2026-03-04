@@ -570,6 +570,14 @@ def _do_session_end():
     session_state["suspended"] = False
     broadcast_event("session", {"status": "ended", "time": time.time()})
 
+    # Notify Clearing House for EOD settlement
+    try:
+        ch_url = os.getenv("CH_SERVICE_URL", "http://localhost:5004")
+        requests.post(f"{ch_url}/ch/eod", timeout=10)
+        print("[Dashboard] CH EOD settlement triggered")
+    except Exception as e:
+        print(f"[Dashboard] CH EOD hook failed (non-critical): {e}")
+
 
 def schedule_runner():
     """Background thread: auto start/end session based on market_schedule.txt."""

@@ -73,6 +73,12 @@ echo "[startup] Starting Frontend on port 5003..."
 PORT=$FRONTEND_PORT TEMPLATE_FOLDER=/app/frontend_templates python3 /app/frontend.py &
 sleep 2
 
+echo "[startup] Starting Clearing House on port 5004..."
+CH_PORT=5004 CH_SERVICE_URL=http://localhost:5004 \
+  MATCHER_URL=http://localhost:6000 \
+  PYTHONPATH=/app python3 /app/clearing_house/app.py &
+sleep 3
+
 # ── nginx (reverse proxy: port 7860 → dashboard:5000 + fix-ui:5002 + frontend:5003) ──
 echo "[startup] Starting nginx on port 7860..."
 nginx
