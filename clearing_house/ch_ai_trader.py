@@ -434,10 +434,7 @@ def _try_groq(prompt: str) -> Optional[str]:
 def _try_hf(prompt: str) -> Optional[str]:
     if not HF_TOKEN:
         return None
-    if HF_MODEL.startswith("RayMelius/"):
-        url = f"https://api-inference.huggingface.co/models/{HF_MODEL}/v1/chat/completions"
-    else:
-        url = "https://router.huggingface.co/v1/chat/completions"
+    url = "https://router.huggingface.co/v1/chat/completions"
     try:
         resp = requests.post(
             url,

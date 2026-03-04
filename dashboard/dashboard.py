@@ -144,11 +144,7 @@ def _call_llm(prompt, force_provider=None, force_model=None):
         if not HF_TOKEN:
             return None, "HuggingFace not configured (HF_TOKEN not set)"
         m = model or HF_MODEL
-        # Use direct inference API for any org/model format; router for bare model names
-        if "/" in m:
-            url = f"https://api-inference.huggingface.co/models/{m}/v1/chat/completions"
-        else:
-            url = HF_URL
+        url = HF_URL
         print(f"[Dashboard/LLM] Calling HF ({m})...")
         for attempt in range(3):
             try:

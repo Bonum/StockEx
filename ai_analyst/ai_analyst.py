@@ -90,10 +90,7 @@ def call_llm(prompt: str) -> str | None:
         if not HF_TOKEN:
             return None
         m = model or HF_MODEL
-        if m.startswith("RayMelius/"):
-            url = f"https://api-inference.huggingface.co/models/{m}/v1/chat/completions"
-        else:
-            url = "https://router.huggingface.co/v1/chat/completions"
+        url = "https://router.huggingface.co/v1/chat/completions"
         print(f"[AI-Analyst] Calling HF: model={m}")
         for attempt in range(3):
             try:
