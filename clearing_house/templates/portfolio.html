@@ -212,8 +212,8 @@ document.getElementById('order-form').addEventListener('submit', async function(
       msg.style.background = 'rgba(63,185,80,.12)';
       msg.style.border = '1px solid var(--green)';
       msg.style.color = 'var(--green)';
-      msg.textContent = `Order submitted: ${data.side} ${data.quantity} ${data.symbol} @ €${data.price}`;
-      setTimeout(() => location.reload(), 1500);
+      msg.textContent = `Order submitted: ${data.side} ${data.quantity} ${data.symbol} @ €${data.price} — waiting for execution...`;
+      setTimeout(() => location.reload(), 4000);
     } else {
       msg.className = 'flash flash-error';
       msg.textContent = result.error || 'Order failed';
@@ -225,14 +225,6 @@ document.getElementById('order-form').addEventListener('submit', async function(
   }
 });
 
-// Auto-refresh portfolio every 15 seconds
-setInterval(async () => {
-  try {
-    const resp = await fetch('/ch/api/portfolio');
-    if (!resp.ok) return;
-    const d = await resp.json();
-    // Just reload the page for simplicity
-    // (A production app would do a DOM patch)
-  } catch(e) {}
-}, 15000);
+// Auto-refresh portfolio every 10 seconds
+setInterval(() => location.reload(), 10000);
 {% endblock %}
