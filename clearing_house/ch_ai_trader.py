@@ -118,8 +118,8 @@ def _trade_consumer_thread():
             break
         try:
             trade = msg.value
-            buy_id  = trade.get("buy_order_id",  "")
-            sell_id = trade.get("sell_order_id", "")
+            buy_id  = trade.get("buy_id") or trade.get("buy_order_id") or ""
+            sell_id = trade.get("sell_id") or trade.get("sell_order_id") or ""
             symbol  = trade.get("symbol", "")
             price   = float(trade.get("price", 0))
             qty     = int(trade.get("quantity", 0))

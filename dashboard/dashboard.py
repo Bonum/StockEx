@@ -209,10 +209,6 @@ def _generate_and_broadcast():
     text, source = _call_llm(prompt, force_provider=_active_provider, force_model=_active_model)
     if text:
         insight = {"text": text, "source": source, "timestamp": time.time()}
-        with lock:
-            ai_insights_cache.insert(0, insight)
-            ai_insights_cache[:] = ai_insights_cache[:10]
-        broadcast_event("ai_insight", insight)
         try:
             get_producer().send(Config.AI_INSIGHTS_TOPIC, insight)
         except Exception:
