@@ -35,7 +35,7 @@ CH_SOURCE      = "CLEARINGHOUSE"
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 HF_TOKEN     = os.getenv("HF_TOKEN", "")
-HF_MODEL     = os.getenv("HF_MODEL", "RayMelius/stockex-ch-trader")
+HF_MODEL     = os.getenv("CH_HF_MODEL", os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
@@ -356,17 +356,22 @@ def _fallback_order(capital: float, holdings: list, bbos: dict) -> Optional[dict
     if not bbos:
         return None
 
-    # Decide side
+    # Decide side based on portfolio balance
     total_holding_value = sum(
         h["quantity"] * (bbos.get(h["symbol"], {}).get("best_ask") or h["avg_cost"])
         for h in holdings
     )
-    # BUY if holdings < 30% of total net worth, else 50/50
     net_worth = capital + total_holding_value
-    if net_worth > 0 and total_holding_value / net_worth < 0.3:
+    holdings_ratio = total_holding_value / net_worth if net_worth > 0 else 0
+
+    if not holdings:
         side = "BUY"
+    elif holdings_ratio > 0.6:
+        side = random.choices(["SELL", "BUY"], weights=[0.7, 0.3])[0]
+    elif holdings_ratio < 0.2:
+        side = random.choices(["BUY", "SELL"], weights=[0.8, 0.2])[0]
     else:
-        side = random.choice(["BUY", "SELL"])
+        side = random.choices(["BUY", "SELL"], weights=[0.5, 0.5])[0]
 
     if side == "SELL" and not holdings:
         side = "BUY"
