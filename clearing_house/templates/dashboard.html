@@ -45,7 +45,7 @@
     </thead>
     <tbody>
       {% for row in leaderboard %}
-      <tr data-member="{{ row.member_id }}">
+      <tr data-member="{{ row.member_id }}" style="cursor:pointer">
         <td style="color:var(--muted)">{{ row.rank }}</td>
         <td><strong>{{ row.member_id }}</strong></td>
         <td>
@@ -80,8 +80,24 @@
 <p style="color:var(--muted); font-size:11px; margin-top:8px;">
   Daily obligation: each member must trade at least {{ obligation }} securities.
   Holdings value is calculated at current market mid-price.
-  Refreshes every 10 seconds.
+  Click a row for full member detail. Refreshes every 10 seconds.
 </p>
+
+<!-- Member detail slide-out panel -->
+<div id="member-overlay" style="display:none; position:fixed; top:0; right:0; bottom:0; left:0; z-index:1000;">
+  <div id="overlay-bg" style="position:absolute; inset:0; background:rgba(0,0,0,0.5);"></div>
+  <div id="member-panel" style="
+    position:absolute; top:0; right:0; bottom:0; width:520px; max-width:95vw;
+    background:var(--card-bg, #1e1e2e); border-left:1px solid var(--border, #333);
+    overflow-y:auto; padding:24px; box-shadow:-4px 0 20px rgba(0,0,0,0.4);
+  ">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 id="detail-title" style="margin:0;"></h2>
+      <button id="detail-close" style="background:none; border:none; color:var(--text, #ccc); font-size:24px; cursor:pointer;">&times;</button>
+    </div>
+    <div id="detail-content">Loading...</div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -105,7 +121,7 @@ async function refreshLeaderboard() {
         ? `<span class="badge-human">Human</span>`
         : `<span class="badge-ai">AI</span>`;
       tbody.innerHTML += `
-        <tr data-member="${row.member_id}">
+        <tr data-member="${row.member_id}" style="cursor:pointer">
           <td style="color:var(--muted)">${row.rank}</td>
           <td><strong>${row.member_id}</strong></td>
           <td>${typeBadge}</td>
@@ -119,6 +135,7 @@ async function refreshLeaderboard() {
           <td style="text-align:center">${oblBadge}</td>
         </tr>`;
     });
+    bindRowClicks();
     document.getElementById('last-update').textContent =
       'Updated ' + new Date().toLocaleTimeString();
   } catch(e) { /* ignore */ }
@@ -126,5 +143,128 @@ async function refreshLeaderboard() {
 
 function fmt(n) {
   return Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+// ── Member detail panel ───────────────────────────────────────────
+const overlay = document.getElementById('member-overlay');
+const detailTitle = document.getElementById('detail-title');
+const detailContent = document.getElementById('detail-content');
+
+document.getElementById('overlay-bg').addEventListener('click', closeDetail);
+document.getElementById('detail-close').addEventListener('click', closeDetail);
+
+function closeDetail() {
+  overlay.style.display = 'none';
+}
+
+function bindRowClicks() {
+  document.querySelectorAll('#lb-table tbody tr[data-member]').forEach(tr => {
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => openDetail(tr.dataset.member);
+  });
+}
+bindRowClicks();
+
+async function openDetail(memberId) {
+  overlay.style.display = 'block';
+  detailTitle.textContent = memberId;
+  detailContent.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
+
+  try {
+    const resp = await fetch(`/ch/api/member/${memberId}`);
+    if (!resp.ok) { detailContent.innerHTML = '<p class="negative">Failed to load</p>'; return; }
+    const d = await resp.json();
+
+    const pnlClass = d.pnl >= 0 ? 'positive' : 'negative';
+    const pnlSign = d.pnl >= 0 ? '+' : '';
+    const typeBadge = d.is_human
+      ? '<span class="badge-human">Human</span>'
+      : '<span class="badge-ai">AI</span>';
+    const oblStatus = d.daily.total_securities >= d.obligation
+      ? `<span class="badge-ok">Met (${d.daily.total_securities}/${d.obligation})</span>`
+      : `<span class="badge-bad">${d.daily.total_securities}/${d.obligation}</span>`;
+
+    let html = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px;">
+        <div class="card stat" style="padding:12px;">
+          <div class="val" style="font-size:18px;">€${fmt(d.capital)}</div>
+          <div class="lbl">Available Capital</div>
+        </div>
+        <div class="card stat" style="padding:12px;">
+          <div class="val" style="font-size:18px;">€${fmt(d.holdings_value)}</div>
+          <div class="lbl">Holdings Value</div>
+        </div>
+        <div class="card stat" style="padding:12px;">
+          <div class="val" style="font-size:18px;"><strong>€${fmt(d.total_value)}</strong></div>
+          <div class="lbl">Total Value</div>
+        </div>
+        <div class="card stat" style="padding:12px;">
+          <div class="val ${pnlClass}" style="font-size:18px;">${pnlSign}€${fmt(d.pnl)}</div>
+          <div class="lbl">P&amp;L</div>
+        </div>
+      </div>
+      <div style="margin-bottom:14px;">
+        ${typeBadge} &nbsp; Obligation: ${oblStatus}
+        &nbsp; Buys: <strong>${d.daily.buy_count}</strong>
+        &nbsp; Sells: <strong>${d.daily.sell_count}</strong>
+      </div>`;
+
+    // Holdings table
+    if (d.holdings.length > 0) {
+      html += `<h3 style="margin:16px 0 8px;">Holdings</h3>
+        <table style="width:100%; font-size:13px;">
+          <thead><tr>
+            <th>Symbol</th><th style="text-align:right">Qty</th>
+            <th style="text-align:right">Avg Cost</th><th style="text-align:right">Price</th>
+            <th style="text-align:right">Value</th><th style="text-align:right">P&amp;L</th>
+          </tr></thead><tbody>`;
+      d.holdings.forEach(h => {
+        const hPnlClass = h.unrealized_pnl >= 0 ? 'positive' : 'negative';
+        const hSign = h.unrealized_pnl >= 0 ? '+' : '';
+        html += `<tr>
+          <td><strong>${h.symbol}</strong></td>
+          <td style="text-align:right">${h.quantity}</td>
+          <td style="text-align:right">€${fmt(h.avg_cost)}</td>
+          <td style="text-align:right">€${fmt(h.current_price)}</td>
+          <td style="text-align:right">€${fmt(h.value)}</td>
+          <td style="text-align:right" class="${hPnlClass}">${hSign}€${fmt(h.unrealized_pnl)}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+    } else {
+      html += '<p style="color:var(--muted); margin-top:16px;">No holdings</p>';
+    }
+
+    // Recent trades table
+    html += `<h3 style="margin:20px 0 8px;">Last ${d.trades.length} Trades</h3>`;
+    if (d.trades.length > 0) {
+      html += `<table style="width:100%; font-size:13px;">
+        <thead><tr>
+          <th>Time</th><th>Symbol</th><th>Side</th>
+          <th style="text-align:right">Qty</th><th style="text-align:right">Price</th>
+          <th style="text-align:right">Value</th>
+        </tr></thead><tbody>`;
+      d.trades.forEach(t => {
+        const sideClass = t.side === 'BUY' ? 'positive' : 'negative';
+        const ts = new Date(t.timestamp * 1000).toLocaleTimeString();
+        const val = (t.quantity * t.price).toFixed(2);
+        html += `<tr>
+          <td style="color:var(--muted)">${ts}</td>
+          <td><strong>${t.symbol}</strong></td>
+          <td class="${sideClass}">${t.side}</td>
+          <td style="text-align:right">${t.quantity}</td>
+          <td style="text-align:right">€${fmt(t.price)}</td>
+          <td style="text-align:right">€${fmt(val)}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+    } else {
+      html += '<p style="color:var(--muted)">No trades today</p>';
+    }
+
+    detailContent.innerHTML = html;
+  } catch(e) {
+    detailContent.innerHTML = '<p class="negative">Error loading member data</p>';
+  }
 }
 {% endblock %}

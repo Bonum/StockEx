@@ -347,6 +347,44 @@ def api_portfolio():
     })
 
 
+@app.route("/ch/api/member/<member_id>")
+def api_member_detail(member_id):
+    """Full detail for a single member: capital, holdings, last 20 trades."""
+    member_id = member_id.upper().strip()
+    member = db.get_member(member_id)
+    if not member:
+        return jsonify({"error": "Member not found"}), 404
+
+    bbos = _get_bbos()
+    holdings = db.get_holdings(member_id)
+    daily = db.get_daily_trades(member_id)
+    trades = db.get_trade_log(member_id, limit=20)
+
+    for h in holdings:
+        bbo = bbos.get(h["symbol"], {})
+        current_price = bbo.get("mid") or h["avg_cost"]
+        h["current_price"] = round(current_price, 2)
+        h["value"] = round(current_price * h["quantity"], 2)
+        h["unrealized_pnl"] = round((current_price - h["avg_cost"]) * h["quantity"], 2)
+
+    total_holdings_value = sum(h["value"] for h in holdings)
+    total_value = round(member["capital"] + total_holdings_value, 2)
+    total_pnl = round(total_value - db.CH_STARTING_CAPITAL, 2)
+
+    return jsonify({
+        "member_id": member_id,
+        "capital": round(member["capital"], 2),
+        "holdings": holdings,
+        "holdings_value": round(total_holdings_value, 2),
+        "total_value": total_value,
+        "pnl": total_pnl,
+        "daily": daily,
+        "trades": trades,
+        "is_human": ai_trader.is_human_active(member_id),
+        "obligation": db.CH_DAILY_OBLIGATION,
+    })
+
+
 @app.route("/ch/api/market")
 def api_market():
     return jsonify(_get_bbos())
