@@ -65,10 +65,22 @@ CREATE TABLE IF NOT EXISTS ch_settlements (
     settled_at      REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ch_ai_decisions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id    TEXT NOT NULL,
+    llm_response TEXT NOT NULL,
+    parsed_order TEXT,
+    source       TEXT NOT NULL DEFAULT 'llm',
+    trading_date TEXT NOT NULL,
+    timestamp    REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_ch_trade_log_member
     ON ch_trade_log(member_id, trading_date);
 CREATE INDEX IF NOT EXISTS idx_ch_settlements_member
     ON ch_settlements(member_id, trading_date);
+CREATE INDEX IF NOT EXISTS idx_ch_ai_decisions_member
+    ON ch_ai_decisions(member_id, trading_date);
 """
 
 
@@ -259,6 +271,41 @@ def get_settlements(member_id: str, limit: int = 30) -> list[dict]:
                   realized_pnl, unrealized_pnl, obligation_met, settled_at
            FROM ch_settlements WHERE member_id=?
            ORDER BY settled_at DESC LIMIT ?""",
+        (member_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── AI Decisions ──────────────────────────────────────────────────────────────
+
+def record_ai_decision(
+    member_id: str,
+    llm_response: str,
+    parsed_order: dict | None,
+    source: str = "llm",
+) -> None:
+    import json as _json
+    _conn().execute(
+        """INSERT INTO ch_ai_decisions
+           (member_id, llm_response, parsed_order, source, trading_date, timestamp)
+           VALUES (?,?,?,?,?,?)""",
+        (
+            member_id,
+            llm_response,
+            _json.dumps(parsed_order) if parsed_order else None,
+            source,
+            today_str(),
+            time.time(),
+        ),
+    )
+    _conn().commit()
+
+
+def get_ai_decisions(member_id: str, limit: int = 10) -> list[dict]:
+    rows = _conn().execute(
+        """SELECT llm_response, parsed_order, source, timestamp
+           FROM ch_ai_decisions WHERE member_id=?
+           ORDER BY timestamp DESC LIMIT ?""",
         (member_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]

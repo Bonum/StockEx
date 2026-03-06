@@ -371,6 +371,16 @@ def api_member_detail(member_id):
     total_value = round(member["capital"] + total_holdings_value, 2)
     total_pnl = round(total_value - db.CH_STARTING_CAPITAL, 2)
 
+    ai_decisions = db.get_ai_decisions(member_id, limit=10)
+    # Parse the stored JSON strings for the frontend
+    import json as _json
+    for d in ai_decisions:
+        if d.get("parsed_order") and isinstance(d["parsed_order"], str):
+            try:
+                d["parsed_order"] = _json.loads(d["parsed_order"])
+            except Exception:
+                pass
+
     return jsonify({
         "member_id": member_id,
         "capital": round(member["capital"], 2),
@@ -380,6 +390,7 @@ def api_member_detail(member_id):
         "pnl": total_pnl,
         "daily": daily,
         "trades": trades,
+        "ai_decisions": ai_decisions,
         "is_human": ai_trader.is_human_active(member_id),
         "obligation": db.CH_DAILY_OBLIGATION,
     })

@@ -262,6 +262,34 @@ async function openDetail(memberId) {
       html += '<p style="color:var(--muted)">No trades today</p>';
     }
 
+    // AI Decision History
+    if (d.ai_decisions && d.ai_decisions.length > 0) {
+      html += `<h3 style="margin:20px 0 8px;">AI Reasoning (last ${d.ai_decisions.length})</h3>`;
+      d.ai_decisions.forEach(dec => {
+        const ts = new Date(dec.timestamp * 1000).toLocaleTimeString();
+        const srcBadge = dec.source === 'llm'
+          ? '<span style="background:#e8eaf6; color:#5c6bc0; padding:1px 6px; border-radius:8px; font-size:10px;">LLM</span>'
+          : dec.source === 'fallback'
+            ? '<span style="background:#fff3e0; color:#e65100; padding:1px 6px; border-radius:8px; font-size:10px;">Fallback</span>'
+            : `<span style="background:#ffebee; color:#c62828; padding:1px 6px; border-radius:8px; font-size:10px;">${dec.source}</span>`;
+        const order = dec.parsed_order;
+        const orderLine = order
+          ? `<span class="${order.side === 'BUY' ? 'positive' : 'negative'}" style="font-weight:bold;">${order.side}</span> ${order.quantity} <strong>${order.symbol}</strong> @ €${fmt(order.price)}`
+          : '<span style="color:var(--muted)">No valid order</span>';
+
+        html += `
+          <div style="border:1px solid var(--border, #333); border-radius:6px; padding:10px; margin-bottom:8px; font-size:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <div>${srcBadge} &nbsp; ${orderLine}</div>
+              <span style="color:var(--muted); font-size:11px;">${ts}</span>
+            </div>
+            <div style="color:var(--muted); white-space:pre-wrap; font-family:monospace; font-size:11px; max-height:80px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px;">${dec.llm_response}</div>
+          </div>`;
+      });
+    } else if (!d.is_human) {
+      html += '<h3 style="margin:20px 0 8px;">AI Reasoning</h3><p style="color:var(--muted)">No AI decisions recorded yet</p>';
+    }
+
     detailContent.innerHTML = html;
   } catch(e) {
     detailContent.innerHTML = '<p class="negative">Error loading member data</p>';

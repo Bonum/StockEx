@@ -268,9 +268,24 @@ def _decide_order_llm(
     if text:
         order = _parse_llm_order(text, bbos)
         if order and _validate_order(order, capital, holdings, bbos):
+            try:
+                db.record_ai_decision(member_id, text, order, source="llm")
+            except Exception as e:
+                print(f"[CH-AI] Failed to log decision: {e}")
             return order
+        # Log failed parse/validation too
+        try:
+            db.record_ai_decision(member_id, text, order, source="llm-invalid")
+        except Exception:
+            pass
     # Fallback: rule-based
-    return _fallback_order(capital, holdings, bbos)
+    fallback = _fallback_order(capital, holdings, bbos)
+    if fallback:
+        try:
+            db.record_ai_decision(member_id, "LLM unavailable, using rule-based fallback", fallback, source="fallback")
+        except Exception:
+            pass
+    return fallback
 
 
 def _build_prompt(member_id, capital, holdings, daily_trades, bbos, obligation_remaining):
