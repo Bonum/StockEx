@@ -11,7 +11,7 @@ from shared.kafka_utils import create_producer, create_consumer
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "")          # e.g. http://host.docker.internal:11434
 OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 HF_TOKEN       = os.getenv("HF_TOKEN", "")
-HF_MODEL       = os.getenv("HF_MODEL", "RayMelius/stockex-analyst")
+HF_MODEL       = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL     = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
