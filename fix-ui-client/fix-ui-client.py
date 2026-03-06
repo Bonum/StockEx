@@ -11,7 +11,6 @@ from collections import deque
 from threading import Lock
 
 from shared.config import Config
-from shared.kafka_utils import create_producer
 
 app = Flask(__name__)
 
@@ -50,7 +49,6 @@ class FixUIClientApp(fix.Application):
         super().__init__()
         self.sessionID = None
         self.connected = False
-        self.producer = create_producer(component_name="FIX-UI-Client")
 
     def onCreate(self, sessionID): self.sessionID = sessionID
     def onLogon(self, sessionID):
@@ -109,17 +107,6 @@ class FixUIClientApp(fix.Application):
 
         fix.Session.sendToTarget(order, self.sessionID)
         log(f"📤 Sent Order (ID={cl_ord_id}): {order.toString()}")
-        
-        # 🔥 Publish to Kafka
-        self.producer.send(Config.ORDERS_TOPIC,
-        {
-            "id": cl_ord_id,
-            "symbol": symbol,
-            "side": "buy" if side == "1" else "sell",
-            "qty": qty,
-            "price": price,
-            "timestamp": time.time(),
-        })
 
         return "Order sent!"
      

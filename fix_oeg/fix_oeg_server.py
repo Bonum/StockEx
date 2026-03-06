@@ -165,7 +165,7 @@ class Application(fix.Application):
             "order_id": order_id,
             "cl_ord_id": cl_ord_id,
             "symbol": symbol,
-            "type": "buy" if str(side_val) == "1" else "sell",
+            "side": "BUY" if str(side_val) == "1" else "SELL",
             "quantity": qty,
             "price": price,
             "timestamp": time.time(),
