@@ -38,7 +38,7 @@ def ts_filter(ts):
     return datetime.datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S")
 
 MATCHER_URL = os.getenv("MATCHER_URL", Config.MATCHER_URL)
-SECURITIES_FILE = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
+SECURITIES_FILE = os.getenv("SECURITIES_FILE", "/app/shared/data/securities.txt")
 
 # SSE clients
 _sse_clients: list[Queue] = []

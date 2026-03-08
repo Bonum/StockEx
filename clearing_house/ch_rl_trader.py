@@ -101,14 +101,48 @@ def feed_trade(symbol: str, price: float, quantity: int):
             _finalize_bar(symbol)
 
 
+def _load_real_ohlcv(symbol: str) -> list[dict]:
+    """Try to load real OHLCV bars from shared/data/ohlcv/{symbol}.json."""
+    ohlcv_dir = os.getenv("OHLCV_DIR", "/app/shared/data/ohlcv")
+    path = os.path.join(ohlcv_dir, f"{symbol}.json")
+    if not os.path.exists(path):
+        # Also check relative to project root
+        alt = os.path.join(os.path.dirname(__file__), "..", "shared", "ohlcv", f"{symbol}.json")
+        if os.path.exists(alt):
+            path = alt
+        else:
+            return []
+    try:
+        import json
+        with open(path, "r") as f:
+            bars = json.load(f)
+        return [
+            {"open": b["open"], "high": b["high"], "low": b["low"],
+             "close": b["close"], "volume": b["volume"]}
+            for b in bars
+        ]
+    except Exception as e:
+        print(f"[CH-RL] Failed to load OHLCV for {symbol}: {e}")
+        return []
+
+
 def seed_price(symbol: str, ref_price: float):
-    """Seed initial bars from reference price when no trade history exists."""
+    """Seed initial bars from real OHLCV data if available, else from reference price."""
     with _bars_lock:
         if symbol in _price_bars and len(_price_bars[symbol]) > 0:
             return
         if symbol not in _price_bars:
             _price_bars[symbol] = deque(maxlen=120)
-        # Create flat bars with small noise for indicator computation
+
+        # Try real OHLCV data first
+        real_bars = _load_real_ohlcv(symbol)
+        if real_bars:
+            for bar in real_bars[-RL_LOOKBACK:]:
+                _price_bars[symbol].append(bar)
+            print(f"[CH-RL] Seeded {symbol} with {len(_price_bars[symbol])} real OHLCV bars")
+            return
+
+        # Fallback: synthetic bars with small noise
         for i in range(RL_LOOKBACK):
             noise = random.uniform(-0.02, 0.02) * ref_price
             p = ref_price + noise

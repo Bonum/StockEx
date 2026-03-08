@@ -23,8 +23,8 @@ class Config:
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://frontend:5000")
 
     # Market data settings
-    SECURITIES_FILE: str = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
-    ORDER_ID_FILE: str = os.getenv("ORDER_ID_FILE", "/app/data/order_id.txt")
+    SECURITIES_FILE: str = os.getenv("SECURITIES_FILE", "/app/shared/data/securities.txt")
+    ORDER_ID_FILE: str = os.getenv("ORDER_ID_FILE", "/app/shared/data/order_id.txt")
 
     # Control topic for start/end of day signals
     CONTROL_TOPIC: str = os.getenv("CONTROL_TOPIC", "control")
@@ -37,7 +37,7 @@ class Config:
     ORDERS_PER_MIN: int = int(os.getenv("ORDERS_PER_MIN", "8"))
 
     # Clearing House
-    CH_DB_PATH: str = os.getenv("CH_DB_PATH", "/app/data/clearing_house.db")
+    CH_DB_PATH: str = os.getenv("CH_DB_PATH", "/app/shared/data/clearing_house.db")
     CH_MEMBERS: list = [f"USR{i:02d}" for i in range(1, 11)]
     CH_STARTING_CAPITAL: float = 100_000.0
     CH_DAILY_OBLIGATION: int = 20

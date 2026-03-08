@@ -289,7 +289,7 @@ def _decide_order(member_id, capital, holdings, daily_trades, bbos, obligation_r
 def _load_reference_prices() -> dict:
     """Load reference prices from securities.txt as fallback when books are empty."""
     ref = {}
-    secs_file = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
+    secs_file = os.getenv("SECURITIES_FILE", "/app/shared/data/securities.txt")
     try:
         with open(secs_file) as f:
             for line in f:
@@ -309,7 +309,7 @@ def _load_reference_prices() -> dict:
 def _fetch_bbos() -> dict:
     """Get BBO for all symbols from Matcher API, falling back to reference prices."""
     try:
-        secs_file = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
+        secs_file = os.getenv("SECURITIES_FILE", "/app/shared/data/securities.txt")
         symbols = []
         try:
             with open(secs_file) as f:

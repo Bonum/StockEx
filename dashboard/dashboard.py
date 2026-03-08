@@ -23,7 +23,7 @@ sse_clients_lock = threading.Lock()
 # Session state
 session_state = {"active": False, "start_time": None, "suspended": False, "mode": "automatic"}
 
-SCHEDULE_FILE  = os.getenv("SCHEDULE_FILE",  "/app/data/market_schedule.txt")
+SCHEDULE_FILE  = os.getenv("SCHEDULE_FILE",  "/app/shared/data/market_schedule.txt")
 FRONTEND_URL   = os.getenv("FRONTEND_URL",   "")
 
 # ── AI Analyst (inline LLM for on-demand generation) ───────────────────────────

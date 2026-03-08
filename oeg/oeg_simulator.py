@@ -2,7 +2,7 @@
 import time, json, random, requests, os
 
 FRONTEND = os.environ.get("FRONTEND_URL", "http://frontend:5000")
-SECURITIES_FILE = os.environ.get("SECURITIES_FILE", "/app/data/securities.txt")
+SECURITIES_FILE = os.environ.get("SECURITIES_FILE", "/app/shared/data/securities.txt")
 SIDES = ["buy", "sell"]
 
 
