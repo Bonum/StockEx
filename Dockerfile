@@ -35,10 +35,10 @@ RUN pip install --no-cache-dir \
       Flask==2.2.5 \
       requests==2.31.0 \
       quickfix \
-      numpy==2.2.3 \
+      "numpy<2.0" \
       pandas==2.2.3 \
       scikit-learn==1.6.1 \
-      "stable-baselines3==2.4.1" \
+      stable-baselines3==2.4.1 \
       huggingface_hub==0.28.1
 
 # ── Application code (flat layout matching /app container paths) ──────────────
