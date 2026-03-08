@@ -258,7 +258,7 @@ def submit_order():
         "ord_type":     "LIMIT",
         "time_in_force": "DAY",
         "timestamp":    time.time(),
-        "source":       "CLEARINGHOUSE",
+        "source":       "CLRH",
     }
     get_producer().send(Config.ORDERS_TOPIC, msg)
     return jsonify({"status": "ok", "cl_ord_id": cl_ord_id})
@@ -399,6 +399,24 @@ def api_member_detail(member_id):
 @app.route("/ch/api/market")
 def api_market():
     return jsonify(_get_bbos())
+
+
+@app.route("/ch/api/config")
+def api_config():
+    return jsonify({
+        "strategy": ai_trader.get_strategy(),
+        "obligation": db.CH_DAILY_OBLIGATION,
+        "ai_interval": int(os.getenv("CH_AI_INTERVAL", "45")),
+    })
+
+
+@app.route("/ch/api/strategy", methods=["POST"])
+def api_set_strategy():
+    data = request.get_json(force=True)
+    strategy = data.get("strategy", "")
+    result = ai_trader.set_strategy(strategy)
+    _broadcast("config", {"strategy": result})
+    return jsonify({"status": "ok", "strategy": result})
 
 
 # ── SSE ────────────────────────────────────────────────────────────────────────

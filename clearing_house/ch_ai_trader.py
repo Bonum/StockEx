@@ -1,10 +1,13 @@
 """AI-driven simulation of CH members not currently controlled by a real user.
 
-Two background threads:
+Three background threads:
   1. _trade_consumer_thread  – Kafka consumer on 'trades' topic; attributes
      trades back to CH members whose cl_ord_id starts with USRxx-.
   2. _simulation_thread      – every CH_AI_INTERVAL seconds, picks an order
-     for each unoccupied member using the LLM (Groq → HF → Ollama fallback).
+     for each unoccupied member using the configured strategy.
+  3. _control_listener_thread – listens for session start/stop/suspend/resume.
+
+Strategy is selected via CH_AI_STRATEGY env var: "llm", "rl", or "hybrid".
 
 Call start() once from app.py after init_db().
 Call set_human_active(member_id) / set_human_inactive(member_id) on login/logout.
@@ -28,9 +31,18 @@ from shared.kafka_utils import create_consumer, create_producer
 
 import ch_database as db
 
+# RL trader (optional – graceful fallback if deps not installed)
+try:
+    import ch_rl_trader as rl_trader
+    _rl_available = True
+except ImportError:
+    _rl_available = False
+    print("[CH-AI] RL dependencies not installed — RL strategy unavailable")
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 CH_AI_INTERVAL = int(os.getenv("CH_AI_INTERVAL", "45"))   # seconds between AI cycles
-CH_SOURCE      = "CLEARINGHOUSE"
+CH_AI_STRATEGY = os.getenv("CH_AI_STRATEGY", "hybrid")     # "llm", "rl", or "hybrid"
+CH_SOURCE      = "CLRH"
 
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
@@ -71,6 +83,24 @@ def is_human_active(member_id: str) -> bool:
         return member_id in _active_humans
 
 
+def get_strategy() -> str:
+    return CH_AI_STRATEGY
+
+
+def set_strategy(strategy: str) -> str:
+    """Dynamically switch AI strategy. Returns the active strategy."""
+    global CH_AI_STRATEGY
+    strategy = strategy.lower().strip()
+    if strategy not in ("llm", "rl", "hybrid"):
+        return CH_AI_STRATEGY
+    if strategy in ("rl", "hybrid") and not _rl_available:
+        print(f"[CH-AI] Cannot switch to {strategy}: RL deps not installed")
+        return CH_AI_STRATEGY
+    CH_AI_STRATEGY = strategy
+    print(f"[CH-AI] Strategy switched to: {strategy}")
+    return CH_AI_STRATEGY
+
+
 def start() -> None:
     """Start background threads. Call once after app startup."""
     global _running
@@ -78,7 +108,11 @@ def start() -> None:
     threading.Thread(target=_trade_consumer_thread, daemon=True, name="ch-trade-consumer").start()
     threading.Thread(target=_simulation_thread,     daemon=True, name="ch-ai-sim").start()
     threading.Thread(target=_control_listener_thread, daemon=True, name="ch-control").start()
-    print("[CH-AI] Background threads started")
+    strategy = CH_AI_STRATEGY
+    if strategy in ("rl", "hybrid") and not _rl_available:
+        strategy = "llm"
+        print("[CH-AI] WARNING: RL requested but deps missing, falling back to LLM")
+    print(f"[CH-AI] Background threads started (strategy={strategy})")
 
 
 # ── Kafka helpers ──────────────────────────────────────────────────────────────
@@ -126,6 +160,13 @@ def _trade_consumer_thread():
 
             if not symbol or price <= 0 or qty <= 0:
                 continue
+
+            # Feed every trade into RL price history (regardless of strategy)
+            if _rl_available:
+                try:
+                    rl_trader.feed_trade(symbol, price, qty)
+                except Exception:
+                    pass
 
             # Detect CH member orders by cl_ord_id prefix pattern USRxx-
             for order_id, side in [(buy_id, "BUY"), (sell_id, "SELL")]:
@@ -207,10 +248,42 @@ def _run_simulation_cycle():
         if obligation_remaining == 0 and random.random() > 0.3:
             continue  # occasionally trade even after obligation met
 
-        order = _decide_order_llm(mid, capital, holdings, dt, bbos, obligation_remaining)
+        order = _decide_order(mid, capital, holdings, dt, bbos, obligation_remaining)
         if order:
             _submit_order(mid, order)
             time.sleep(0.5)  # stagger submissions
+
+
+def _decide_order(member_id, capital, holdings, daily_trades, bbos, obligation_remaining):
+    """Dispatch to the configured strategy."""
+    strategy = CH_AI_STRATEGY
+
+    # Hybrid: split members between RL and LLM
+    if strategy == "hybrid" and _rl_available:
+        member_num = int(member_id[-2:])
+        strategy = "rl" if member_num <= 5 else "llm"
+
+    if strategy == "rl" and _rl_available:
+        try:
+            order = rl_trader.decide_order_rl(
+                member_id, capital, holdings, bbos, obligation_remaining,
+            )
+            if order and _validate_order(order, capital, holdings, bbos):
+                try:
+                    db.record_ai_decision(member_id, f"RL: {order}", order, source="rl")
+                except Exception:
+                    pass
+                return order
+        except Exception as e:
+            print(f"[CH-AI] RL strategy error for {member_id}: {e}")
+        # Fall through to LLM on RL failure
+        return _decide_order_llm(
+            member_id, capital, holdings, daily_trades, bbos, obligation_remaining,
+        )
+
+    return _decide_order_llm(
+        member_id, capital, holdings, daily_trades, bbos, obligation_remaining,
+    )
 
 
 def _load_reference_prices() -> dict:

@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
-RUN pip install --no-cache-dir flask kafka-python requests
+RUN pip install --no-cache-dir flask kafka-python requests \
+      numpy pandas scikit-learn "stable-baselines3[extra]" huggingface_hub
 
 WORKDIR /app
 

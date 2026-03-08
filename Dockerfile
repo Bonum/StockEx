@@ -33,7 +33,12 @@ RUN pip install --no-cache-dir \
       kafka-python==2.0.2 \
       Flask==2.2.5 \
       requests==2.31.0 \
-      quickfix
+      quickfix \
+      numpy \
+      pandas \
+      scikit-learn \
+      "stable-baselines3[extra]" \
+      huggingface_hub
 
 # ── Application code (flat layout matching /app container paths) ──────────────
 WORKDIR /app
