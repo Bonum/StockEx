@@ -24,7 +24,7 @@ fix_oeg/store/
 logs/
 
 # Runtime state
-shared_data/order_id.txt
+shared/data/order_id.txt
 
 # SQLite databases
 *.db

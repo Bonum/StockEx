@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-STOCKEX_VERSION="2.0.1"
+STOCKEX_VERSION="2.3.0"
 echo "===== StockEx v${STOCKEX_VERSION} — Application Startup at $(date '+%Y-%m-%d %H:%M:%S') ====="
 
 KAFKA_DIR=/opt/kafka

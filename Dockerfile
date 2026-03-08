@@ -46,6 +46,7 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 
 COPY shared/                          /app/shared/
+RUN mkdir -p /app/data
 # Also expose schedule path via env so dashboard finds it
 ENV SCHEDULE_FILE=/app/shared/data/market_schedule.txt
 
