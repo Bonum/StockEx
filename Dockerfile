@@ -28,20 +28,18 @@ RUN wget -q \
     && mv /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka \
     && rm /tmp/kafka.tgz
 
-# Cache-bust: increment to force pip reinstall on HF Spaces
-ARG PIP_CACHE_BUST=2
-
 # Install Python dependencies (quickfix compiles from source – allow extra time)
+# v2.0.2: added numpy, pandas, scikit-learn, stable-baselines3, huggingface_hub
 RUN pip install --no-cache-dir \
       kafka-python==2.0.2 \
       Flask==2.2.5 \
       requests==2.31.0 \
       quickfix \
-      numpy \
-      pandas \
-      scikit-learn \
-      "stable-baselines3[extra]" \
-      huggingface_hub
+      numpy==2.2.3 \
+      pandas==2.2.3 \
+      scikit-learn==1.6.1 \
+      "stable-baselines3==2.4.1" \
+      huggingface_hub==0.28.1
 
 # ── Application code (flat layout matching /app container paths) ──────────────
 WORKDIR /app
