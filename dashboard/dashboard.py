@@ -220,7 +220,7 @@ def _generate_and_broadcast():
         print(f"[Dashboard/LLM] LLM failed: {source}")
 
 # ── OHLCV History ──────────────────────────────────────────────────────────────
-HISTORY_DB = os.getenv("HISTORY_DB", "/app/data/dashboard_history.db")
+HISTORY_DB = os.getenv("HISTORY_DB", "/app/shared/data/dashboard_history.db")
 BUCKET_SIZE = 60  # 1-minute candles
 
 PERIOD_SECONDS = {
@@ -248,7 +248,40 @@ def init_history_db():
         )
     """)
     conn.commit()
+
+    # Auto-seed from OHLCV JSON files if DB is empty
+    row_count = conn.execute("SELECT COUNT(*) FROM ohlcv").fetchone()[0]
+    if row_count == 0:
+        _seed_history_from_ohlcv(conn)
+
     conn.close()
+
+
+def _seed_history_from_ohlcv(conn):
+    """Seed dashboard_history.db from shared/data/ohlcv/*.json on first run."""
+    import glob as globmod
+    ohlcv_dir = os.path.join(os.path.dirname(HISTORY_DB), "ohlcv")
+    if not os.path.isdir(ohlcv_dir):
+        return
+    count = 0
+    for path in sorted(globmod.glob(os.path.join(ohlcv_dir, "*.json"))):
+        sym = os.path.splitext(os.path.basename(path))[0]
+        try:
+            with open(path) as f:
+                bars = json.load(f)
+            for bar in bars:
+                from datetime import datetime as _dt
+                dt = _dt.strptime(bar["date"], "%Y-%m-%d").replace(hour=10)
+                bucket = int(dt.timestamp() // 60) * 60
+                conn.execute(
+                    "INSERT OR IGNORE INTO ohlcv VALUES (?,?,?,?,?,?,?)",
+                    (sym, bucket, bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"]),
+                )
+                count += 1
+        except Exception as e:
+            print(f"[History] Error seeding {sym}: {e}")
+    conn.commit()
+    print(f"[History] Auto-seeded {count} candles from OHLCV files")
 
 
 def record_trade(symbol, price, qty, ts):
@@ -769,6 +802,18 @@ def session_status():
 
 
 # ── History endpoint ───────────────────────────────────────────────────────────
+
+@app.route("/history/symbols")
+def history_symbols():
+    """Return list of symbols that have historical OHLCV data."""
+    try:
+        conn = sqlite3.connect(HISTORY_DB)
+        rows = conn.execute("SELECT DISTINCT symbol FROM ohlcv ORDER BY symbol").fetchall()
+        conn.close()
+        return jsonify({"symbols": [r[0] for r in rows]})
+    except Exception:
+        return jsonify({"symbols": []})
+
 
 @app.route("/history/<symbol>")
 def history(symbol):

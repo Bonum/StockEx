@@ -1617,6 +1617,26 @@
       connectSSE();
       loadAIConfig();
 
+      // Pre-populate history symbol dropdown from DB (shows chart before session starts)
+      try {
+        const resp = await fetch("/history/symbols");
+        const data = await resp.json();
+        const histSel = document.getElementById("history-symbol");
+        const existing = new Set(Array.from(histSel.options).map(o => o.value));
+        (data.symbols || []).forEach(sym => {
+          if (!existing.has(sym)) {
+            const opt = document.createElement("option");
+            opt.value = sym; opt.textContent = sym;
+            histSel.appendChild(opt);
+          }
+        });
+        // Default to 1W view if there's historical data and no live session
+        if (data.symbols && data.symbols.length > 0 && !document.getElementById("history-period").value) {
+          document.getElementById("history-period").value = "1w";
+        }
+        loadHistory();
+      } catch(e) { /* ignore */ }
+
       // Refresh order book panel every 3 seconds
       setInterval(() => {
         const sym = document.getElementById("bbo-symbol-select").value;

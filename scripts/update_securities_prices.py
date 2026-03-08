@@ -8,12 +8,14 @@ Usage:
     python scripts/update_securities_prices.py --history 10 # also print 10-day history
     python scripts/update_securities_prices.py --reset-start # reset start_price to oldest close
     python scripts/update_securities_prices.py --ohlcv 60   # export 60 days of OHLCV for RL agent
+    python scripts/update_securities_prices.py --seed-chart # seed dashboard price chart DB
 
 Requires: pip install yfinance
 """
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime
 
@@ -45,6 +47,7 @@ TICKER_MAP = {
 
 SECURITIES_FILE = os.path.join(os.path.dirname(__file__), "..", "shared", "data", "securities.txt")
 OHLCV_DIR = os.path.join(os.path.dirname(__file__), "..", "shared", "data", "ohlcv")
+HISTORY_DB = os.path.join(os.path.dirname(__file__), "..", "shared", "data", "dashboard_history.db")
 
 # Tickers that trade in USD and need EUR conversion
 USD_TICKERS = {"AMZN", "TSLA", "NVDA", "GOOGL", "AAPL"}
@@ -206,6 +209,45 @@ def export_ohlcv(results):
     print(f"Exported OHLCV for {exported} symbols to {OHLCV_DIR}")
 
 
+def seed_dashboard_db(results):
+    """Insert OHLCV data into dashboard_history.db for the price chart.
+
+    Each daily bar is inserted as a single candle at 10:00 market open
+    of that trading day (bucket = Unix timestamp rounded to 60s).
+    """
+    conn = sqlite3.connect(HISTORY_DB)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ohlcv (
+            symbol  TEXT,
+            bucket  INTEGER,
+            open    REAL,
+            high    REAL,
+            low     REAL,
+            close   REAL,
+            volume  INTEGER,
+            PRIMARY KEY (symbol, bucket)
+        )
+    """)
+
+    inserted = 0
+    for sym, data in results.items():
+        if data is None or "ohlcv" not in data:
+            continue
+        for bar in data["ohlcv"]:
+            # Convert date string to Unix timestamp at 10:00 local time
+            dt = datetime.strptime(bar["date"], "%Y-%m-%d").replace(hour=10, minute=0)
+            bucket = int(dt.timestamp() // 60) * 60
+            conn.execute(
+                "INSERT OR REPLACE INTO ohlcv VALUES (?,?,?,?,?,?,?)",
+                (sym, bucket, bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"]),
+            )
+            inserted += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Seeded {inserted} candles into {HISTORY_DB}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Update securities.txt with real ATHEX prices")
     parser.add_argument("--history", type=int, default=0,
@@ -218,6 +260,8 @@ def main():
                         help="Output results as JSON")
     parser.add_argument("--ohlcv", type=int, default=0,
                         help="Export N days of OHLCV data for RL agent (default: 0, disabled)")
+    parser.add_argument("--seed-chart", action="store_true",
+                        help="Seed dashboard_history.db with fetched OHLCV for price chart display")
     args = parser.parse_args()
 
     days = max(args.history, args.ohlcv, 10)
@@ -236,6 +280,9 @@ def main():
         if args.ohlcv > 0:
             print(f"\n=== Exporting OHLCV for RL Agent ({days} bars) ===")
             export_ohlcv(results)
+        if args.seed_chart:
+            print(f"\n=== Seeding Dashboard Price Chart ===")
+            seed_dashboard_db(results)
     else:
         print("(dry run — no files updated)")
 
