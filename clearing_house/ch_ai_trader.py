@@ -426,7 +426,11 @@ def _submit_order(member_id: str, order: dict) -> None:
 # ── LLM (Groq → HF → Ollama fallback) ────────────────────────────────────────
 
 def _call_llm(prompt: str) -> Optional[str]:
-    return _try_groq(prompt) or _try_hf(prompt) or _try_ollama(prompt)
+    if os.getenv("SPACE_ID"):
+        # Running on HuggingFace Spaces — prefer Groq (free), skip custom HF model
+        return _try_groq(prompt) or _try_ollama(prompt)
+    # Local / self-hosted — prefer fine-tuned model via Ollama
+    return _try_ollama(prompt) or _try_groq(prompt) or _try_hf(prompt)
 
 
 def _try_groq(prompt: str) -> Optional[str]:
