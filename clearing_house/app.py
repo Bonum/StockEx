@@ -111,6 +111,17 @@ def _build_leaderboard(bbos: dict) -> list[dict]:
         row["total_value"] = round(row["capital"] + holdings_value, 2)
         row["pnl"] = round(row["total_value"] - db.CH_STARTING_CAPITAL, 2)
         row["is_human"] = ai_trader.is_human_active(row["member_id"])
+        # Determine AI type for this member
+        strategy = ai_trader.get_strategy()
+        if row["is_human"]:
+            row["ai_type"] = "Human"
+        elif strategy == "rl":
+            row["ai_type"] = "NN"
+        elif strategy == "llm":
+            row["ai_type"] = "LLM"
+        else:  # hybrid
+            member_num = int(row["member_id"][-2:])
+            row["ai_type"] = "NN" if member_num <= 5 else "LLM"
     # Sort by total_value descending
     rows.sort(key=lambda r: r["total_value"], reverse=True)
     for i, row in enumerate(rows):
@@ -392,8 +403,21 @@ def api_member_detail(member_id):
         "trades": trades,
         "ai_decisions": ai_decisions,
         "is_human": ai_trader.is_human_active(member_id),
+        "ai_type": _member_ai_type(member_id),
         "obligation": db.CH_DAILY_OBLIGATION,
     })
+
+
+def _member_ai_type(member_id: str) -> str:
+    if ai_trader.is_human_active(member_id):
+        return "Human"
+    strategy = ai_trader.get_strategy()
+    if strategy == "rl":
+        return "NN"
+    if strategy == "llm":
+        return "LLM"
+    member_num = int(member_id[-2:])
+    return "NN" if member_num <= 5 else "LLM"
 
 
 @app.route("/ch/api/market")

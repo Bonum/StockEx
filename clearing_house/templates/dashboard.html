@@ -51,8 +51,10 @@
         <td>
           {% if row.is_human %}
             <span class="badge-human">Human</span>
+          {% elif row.ai_type == 'NN' %}
+            <span class="badge-ai" style="background:#00695c;">NN</span>
           {% else %}
-            <span class="badge-ai">AI</span>
+            <span class="badge-ai" style="background:#5c6bc0;">LLM</span>
           {% endif %}
         </td>
         <td style="text-align:right">€{{ "{:,.2f}".format(row.capital) }}</td>
@@ -80,7 +82,7 @@
 <p style="color:var(--muted); font-size:11px; margin-top:8px;">
   Daily obligation: each member must trade at least {{ obligation }} securities.
   Holdings value is calculated at current market mid-price.
-  Click a row for full member detail. Refreshes every 10 seconds.
+  Click a row for full member detail. Right-click table to switch AI strategy. Refreshes every 10 seconds.
 </p>
 
 <!-- Member detail slide-out panel -->
@@ -119,7 +121,9 @@ async function refreshLeaderboard() {
         : `<span class="badge-bad">${row.total_securities}/{{ obligation }}</span>`;
       const typeBadge = row.is_human
         ? `<span class="badge-human">Human</span>`
-        : `<span class="badge-ai">AI</span>`;
+        : row.ai_type === 'NN'
+          ? `<span class="badge-ai" style="background:#00695c;">NN</span>`
+          : `<span class="badge-ai" style="background:#5c6bc0;">LLM</span>`;
       tbody.innerHTML += `
         <tr data-member="${row.member_id}" style="cursor:pointer">
           <td style="color:var(--muted)">${row.rank}</td>
@@ -179,7 +183,9 @@ async function openDetail(memberId) {
     const pnlSign = d.pnl >= 0 ? '+' : '';
     const typeBadge = d.is_human
       ? '<span class="badge-human">Human</span>'
-      : '<span class="badge-ai">AI</span>';
+      : d.ai_type === 'NN'
+        ? '<span class="badge-ai" style="background:#00695c;">NN</span>'
+        : '<span class="badge-ai" style="background:#5c6bc0;">LLM</span>';
     const oblStatus = d.daily.total_securities >= d.obligation
       ? `<span class="badge-ok">Met (${d.daily.total_securities}/${d.obligation})</span>`
       : `<span class="badge-bad">${d.daily.total_securities}/${d.obligation}</span>`;
@@ -269,9 +275,11 @@ async function openDetail(memberId) {
         const ts = new Date(dec.timestamp * 1000).toLocaleTimeString();
         const srcBadge = dec.source === 'llm'
           ? '<span style="background:#e8eaf6; color:#5c6bc0; padding:1px 6px; border-radius:8px; font-size:10px;">LLM</span>'
-          : dec.source === 'fallback'
-            ? '<span style="background:#fff3e0; color:#e65100; padding:1px 6px; border-radius:8px; font-size:10px;">Fallback</span>'
-            : `<span style="background:#ffebee; color:#c62828; padding:1px 6px; border-radius:8px; font-size:10px;">${dec.source}</span>`;
+          : dec.source === 'rl'
+            ? '<span style="background:#e0f2f1; color:#00695c; padding:1px 6px; border-radius:8px; font-size:10px;">NN</span>'
+            : dec.source === 'fallback'
+              ? '<span style="background:#fff3e0; color:#e65100; padding:1px 6px; border-radius:8px; font-size:10px;">Fallback</span>'
+              : `<span style="background:#ffebee; color:#c62828; padding:1px 6px; border-radius:8px; font-size:10px;">${dec.source}</span>`;
         const order = dec.parsed_order;
         const orderLine = order
           ? `<span class="${order.side === 'BUY' ? 'positive' : 'negative'}" style="font-weight:bold;">${order.side}</span> ${order.quantity} <strong>${order.symbol}</strong> @ €${fmt(order.price)}`
@@ -295,4 +303,73 @@ async function openDetail(memberId) {
     detailContent.innerHTML = '<p class="negative">Error loading member data</p>';
   }
 }
+
+// ── Right-click context menu: switch AI strategy ───────────────────
+const ctxMenu = document.createElement('div');
+ctxMenu.id = 'strategy-menu';
+ctxMenu.style.cssText = `
+  display:none; position:fixed; z-index:2000;
+  background:var(--card-bg, #1e1e2e); border:1px solid var(--border, #444);
+  border-radius:8px; padding:6px 0; box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  min-width:180px; font-size:13px;
+`;
+ctxMenu.innerHTML = `
+  <div style="padding:6px 14px; color:var(--muted); font-size:11px; font-weight:bold;">AI Strategy</div>
+  <div class="ctx-item" data-strategy="hybrid" style="padding:8px 14px; cursor:pointer;">Hybrid (NN + LLM)</div>
+  <div class="ctx-item" data-strategy="rl" style="padding:8px 14px; cursor:pointer;">All NN (Neural Network)</div>
+  <div class="ctx-item" data-strategy="llm" style="padding:8px 14px; cursor:pointer;">All LLM</div>
+`;
+document.body.appendChild(ctxMenu);
+
+// Style hover
+ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
+  item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.08)');
+  item.addEventListener('mouseleave', () => item.style.background = 'none');
+});
+
+// Show on right-click anywhere on the leaderboard table
+document.getElementById('lb-table').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  ctxMenu.style.display = 'block';
+  const x = Math.min(e.clientX, window.innerWidth - 200);
+  const y = Math.min(e.clientY, window.innerHeight - 140);
+  ctxMenu.style.left = x + 'px';
+  ctxMenu.style.top = y + 'px';
+  highlightCurrentStrategy();
+});
+
+// Hide on click elsewhere
+document.addEventListener('click', () => ctxMenu.style.display = 'none');
+
+async function highlightCurrentStrategy() {
+  try {
+    const resp = await fetch('/ch/api/config');
+    const cfg = await resp.json();
+    ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
+      const isCurrent = item.dataset.strategy === cfg.strategy;
+      item.style.fontWeight = isCurrent ? 'bold' : 'normal';
+      item.style.color = isCurrent ? 'var(--accent, #42a5f5)' : 'var(--text, #ccc)';
+      // Reset text to base, then append checkmark
+      const base = item.dataset.strategy === 'hybrid' ? 'Hybrid (NN + LLM)'
+        : item.dataset.strategy === 'rl' ? 'All NN (Neural Network)' : 'All LLM';
+      item.textContent = isCurrent ? base + ' \u2713' : base;
+    });
+  } catch(e) {}
+}
+
+ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
+  item.addEventListener('click', async () => {
+    ctxMenu.style.display = 'none';
+    try {
+      const resp = await fetch('/ch/api/strategy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({strategy: item.dataset.strategy}),
+      });
+      if (resp.ok) {
+        refreshLeaderboard();
+      }
+    } catch(e) { console.error('Strategy switch failed:', e); }
+  });
+});
 {% endblock %}
