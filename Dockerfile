@@ -28,6 +28,9 @@ RUN wget -q \
     && mv /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka \
     && rm /tmp/kafka.tgz
 
+# Cache-bust: increment to force pip reinstall on HF Spaces
+ARG PIP_CACHE_BUST=2
+
 # Install Python dependencies (quickfix compiles from source – allow extra time)
 RUN pip install --no-cache-dir \
       kafka-python==2.0.2 \
