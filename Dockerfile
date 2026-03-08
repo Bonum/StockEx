@@ -29,7 +29,7 @@ RUN wget -q \
     && rm /tmp/kafka.tgz
 
 # Install Python dependencies (quickfix compiles from source – allow extra time)
-# v2.0.2: added numpy, pandas, scikit-learn, stable-baselines3, huggingface_hub
+# v2.0.3: force rebuild 2026-03-08
 RUN pip install --no-cache-dir \
       kafka-python==2.0.2 \
       Flask==2.2.5 \
@@ -39,7 +39,8 @@ RUN pip install --no-cache-dir \
       pandas==2.2.3 \
       scikit-learn==1.6.1 \
       stable-baselines3==2.4.1 \
-      huggingface_hub==0.28.1
+      huggingface_hub==0.28.1 \
+    && echo "pip-v2.0.3"
 
 # ── Application code (flat layout matching /app container paths) ──────────────
 WORKDIR /app
