@@ -213,10 +213,29 @@ def _run_simulation_cycle():
             time.sleep(0.5)  # stagger submissions
 
 
-def _fetch_bbos() -> dict:
-    """Get BBO for all symbols from Matcher API."""
+def _load_reference_prices() -> dict:
+    """Load reference prices from securities.txt as fallback when books are empty."""
+    ref = {}
+    secs_file = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
     try:
-        # Load securities list to know symbols
+        with open(secs_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        sym, _, current = parts[0], float(parts[1]), float(parts[2])
+                        ref[sym] = current
+                    elif len(parts) >= 2:
+                        ref[parts[0]] = float(parts[1])
+    except Exception:
+        pass
+    return ref
+
+
+def _fetch_bbos() -> dict:
+    """Get BBO for all symbols from Matcher API, falling back to reference prices."""
+    try:
         secs_file = os.getenv("SECURITIES_FILE", "/app/data/securities.txt")
         symbols = []
         try:
@@ -248,6 +267,22 @@ def _fetch_bbos() -> dict:
                         bbos[sym] = {"best_bid": best_bid, "best_ask": best_ask}
             except Exception:
                 pass
+
+        # Fall back to reference prices for symbols with no live BBO
+        if len(bbos) < len(symbols):
+            ref_prices = _load_reference_prices()
+            spread = 0.10
+            for sym in symbols:
+                if sym not in bbos and sym in ref_prices:
+                    mid = ref_prices[sym]
+                    bbos[sym] = {
+                        "best_bid": round(mid - spread, 2),
+                        "best_ask": round(mid + spread, 2),
+                    }
+            if ref_prices:
+                print(f"[CH-AI] Using reference prices for {len(bbos)} symbols "
+                      f"({len(bbos) - len([s for s in bbos if bbos[s].get('best_bid')])} from file)")
+
         return bbos
     except Exception as e:
         print(f"[CH-AI] BBO fetch error: {e}")

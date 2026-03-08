@@ -13,7 +13,7 @@ import os
 CH_DB_PATH = os.getenv("CH_DB_PATH", "/app/data/clearing_house.db")
 CH_MEMBERS = [f"USR{i:02d}" for i in range(1, 11)]
 CH_STARTING_CAPITAL = 100_000.0
-CH_DAILY_OBLIGATION = 10  # minimum securities (qty sum) per trading day
+CH_DAILY_OBLIGATION = 20  # minimum securities (qty sum) per trading day
 
 _local = threading.local()
 

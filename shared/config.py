@@ -40,5 +40,5 @@ class Config:
     CH_DB_PATH: str = os.getenv("CH_DB_PATH", "/app/data/clearing_house.db")
     CH_MEMBERS: list = [f"USR{i:02d}" for i in range(1, 11)]
     CH_STARTING_CAPITAL: float = 100_000.0
-    CH_DAILY_OBLIGATION: int = 10
+    CH_DAILY_OBLIGATION: int = 20
     CH_SERVICE_URL: str = os.getenv("CH_SERVICE_URL", "http://localhost:5004")

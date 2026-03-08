@@ -131,47 +131,48 @@ if __name__ == "__main__":
 
                 mid = vals["current"]
                 half_spread = 0.10
+                tick = Config.TICK_SIZE
 
-                side = random.choice(["BUY", "SELL"])
-                rand = random.random()
+                # Always place a resting BID and ASK to maintain book depth
+                for depth_level in range(3):
+                    offset = random.randint(1 + depth_level * 3, 3 + depth_level * 5) * tick
+                    bid_price = round(mid - half_spread - offset, 2)
+                    ask_price = round(mid + half_spread + offset, 2)
+                    bid_qty = random.choice([50, 100, 150, 200])
+                    ask_qty = random.choice([50, 100, 150, 200])
 
-                if rand < 0.90:
-                    # Passive: place orders away from mid to rest on book
+                    bid_order = make_order(sym, "BUY", bid_price, bid_qty)
+                    ask_order = make_order(sym, "SELL", ask_price, ask_qty)
+                    producer.send(Config.ORDERS_TOPIC, bid_order)
+                    producer.send(Config.ORDERS_TOPIC, ask_order)
+                    print(f"[MDF] Depth: {sym} BID {bid_qty}@{bid_price:.2f}  ASK {ask_qty}@{ask_price:.2f}")
+
+                # Occasionally add an aggressive order to generate trades (20%)
+                if random.random() < 0.20:
+                    side = random.choice(["BUY", "SELL"])
                     if side == "BUY":
-                        base = mid - half_spread
-                        offset = random.randint(1, 50) * Config.TICK_SIZE
-                        price = round(base - offset, 2)
+                        price = round(mid + half_spread + random.randint(1, 3) * tick, 2)
                     else:
-                        base = mid + half_spread
-                        offset = random.randint(1, 50) * Config.TICK_SIZE
-                        price = round(base + offset, 2)
-                else:
-                    # Aggressive: cross the spread to create trades
-                    if side == "BUY":
-                        price = round(mid + half_spread + random.randint(1, 5) * Config.TICK_SIZE, 2)
-                    else:
-                        price = round(mid - half_spread - random.randint(1, 5) * Config.TICK_SIZE, 2)
-
-                qty = random.choice([50, 100, 150, 200, 250])
-                order = make_order(sym, side, price, qty)
-                producer.send(Config.ORDERS_TOPIC, order)
-                print(f"[MDF] Order: {order}")
+                        price = round(mid - half_spread - random.randint(1, 3) * tick, 2)
+                    qty = random.choice([50, 100, 150])
+                    aggr_order = make_order(sym, side, price, qty)
+                    producer.send(Config.ORDERS_TOPIC, aggr_order)
+                    print(f"[MDF] Aggr:  {sym} {side} {qty}@{price:.2f}")
 
                 # Simulate small price drift (10% chance, max 2 ticks)
                 if random.random() < 0.10:
-                    drift = random.choice([-2, -1, 1, 2]) * Config.TICK_SIZE
+                    drift = random.choice([-2, -1, 1, 2]) * tick
                     new_price = vals["current"] + drift
                     if new_price >= 1.00:
                         vals["current"] = round(new_price, 2)
                         save_securities(_securities)
 
-                best_bid = mid - half_spread
-                best_ask = mid + half_spread
-                bid_size = random.choice([50, 100, 200])
-                ask_size = random.choice([50, 100, 200])
+                best_bid = round(mid - half_spread, 2)
+                best_ask = round(mid + half_spread, 2)
+                bid_size = random.choice([100, 200, 300])
+                ask_size = random.choice([100, 200, 300])
                 snap = make_snapshot(sym, best_bid, best_ask, bid_size, ask_size)
                 producer.send(Config.SNAPSHOTS_TOPIC, snap)
-                print(f"[MDF] Snapshot: {snap}")
 
                 time.sleep(ORDER_INTERVAL)
 
