@@ -1,4 +1,8 @@
-"""RL-based trading strategy using Adilbai/stock-trading-rl-agent (PPO).
+"""RL-based trading strategy using PPO models from HuggingFace Hub.
+
+Supports two model slots:
+  - nn1: Adilbai/stock-trading-rl-agent
+  - nn2: RayMelius/stockex-nn-agent
 
 Provides decide_order_rl() with the same return type as _decide_order_llm()
 so it can be used as a drop-in alternative in ch_ai_trader.py.
@@ -15,17 +19,21 @@ from typing import Optional
 import numpy as np
 
 # ── Config ────────────────────────────────────────────────────────────────────
-RL_MODEL_REPO = os.getenv("CH_RL_MODEL_REPO", "Adilbai/stock-trading-rl-agent")
+RL_MODEL_REPOS = {
+    "nn1": os.getenv("CH_RL_MODEL_REPO_NN1", os.getenv("CH_RL_MODEL_REPO", "Adilbai/stock-trading-rl-agent")),
+    "nn2": os.getenv("CH_RL_MODEL_REPO_NN2", "RayMelius/stockex-nn-agent"),
+}
 RL_MODEL_CACHE = os.getenv("CH_RL_MODEL_CACHE", "/app/data/rl_model")
 RL_BAR_INTERVAL = int(os.getenv("CH_RL_BAR_INTERVAL", "60"))  # seconds per bar
 RL_MIN_BARS = int(os.getenv("CH_RL_MIN_BARS", "30"))          # min bars before RL kicks in
 RL_LOOKBACK = 60
 
 # ── Shared state ──────────────────────────────────────────────────────────────
-_model = None
-_scaler = None
+# Per-model-slot: {"nn1": (model, scaler), "nn2": (model, scaler)}
+_models: dict[str, tuple] = {}
+_load_attempted: dict[str, bool] = {}
 _model_lock = threading.Lock()
-_load_attempted = False
+_active_model: str = "nn1"  # which model slot to use by default
 
 # Per-symbol rolling price bars: {symbol: deque of {open, high, low, close, volume}}
 _price_bars: dict[str, deque] = {}
@@ -36,45 +44,81 @@ _current_bar: dict[str, dict] = {}
 
 # ── Model loading ─────────────────────────────────────────────────────────────
 
-def _load_model():
-    """Download and load the PPO model + scaler from HuggingFace Hub."""
-    global _model, _scaler, _load_attempted
+def _load_model(slot: str = "nn1") -> bool:
+    """Download and load a PPO model + scaler from HuggingFace Hub."""
     with _model_lock:
-        if _load_attempted:
-            return _model is not None
-        _load_attempted = True
+        if _load_attempted.get(slot):
+            return slot in _models
+        _load_attempted[slot] = True
+
+    repo = RL_MODEL_REPOS.get(slot)
+    if not repo:
+        print(f"[CH-RL] No repo configured for slot '{slot}'")
+        return False
 
     try:
         from huggingface_hub import hf_hub_download
         from stable_baselines3 import PPO
 
-        os.makedirs(RL_MODEL_CACHE, exist_ok=True)
-        print(f"[CH-RL] Downloading model from {RL_MODEL_REPO}...")
+        cache_dir = os.path.join(RL_MODEL_CACHE, slot)
+        os.makedirs(cache_dir, exist_ok=True)
+        print(f"[CH-RL] Downloading {slot} model from {repo}...")
 
         model_path = hf_hub_download(
-            repo_id=RL_MODEL_REPO, filename="final_model.zip",
-            cache_dir=RL_MODEL_CACHE,
+            repo_id=repo, filename="final_model.zip",
+            cache_dir=cache_dir,
         )
         scaler_path = hf_hub_download(
-            repo_id=RL_MODEL_REPO, filename="scaler.pkl",
-            cache_dir=RL_MODEL_CACHE,
+            repo_id=repo, filename="scaler.pkl",
+            cache_dir=cache_dir,
         )
 
-        with _model_lock:
-            _model = PPO.load(model_path)
-            with open(scaler_path, "rb") as f:
-                _scaler = pickle.load(f)
+        model = PPO.load(model_path)
+        with open(scaler_path, "rb") as f:
+            scaler = pickle.load(f)
 
-        print("[CH-RL] Model loaded successfully")
+        with _model_lock:
+            _models[slot] = (model, scaler)
+
+        print(f"[CH-RL] Model '{slot}' loaded successfully from {repo}")
         return True
     except Exception as e:
-        print(f"[CH-RL] Failed to load model: {e}")
+        print(f"[CH-RL] Failed to load model '{slot}' from {repo}: {e}")
         return False
 
 
-def is_available() -> bool:
-    """Check if RL model is loaded and ready."""
-    return _model is not None
+def is_available(slot: str | None = None) -> bool:
+    """Check if an RL model is loaded and ready."""
+    if slot:
+        return slot in _models or not _load_attempted.get(slot, False)
+    # At least one model available or not yet attempted
+    return bool(_models) or not all(_load_attempted.get(s, False) for s in RL_MODEL_REPOS)
+
+
+def get_active_model() -> str:
+    """Return the currently active model slot name."""
+    return _active_model
+
+
+def set_active_model(slot: str) -> str:
+    """Switch the active NN model. Returns the active slot name."""
+    global _active_model
+    if slot in RL_MODEL_REPOS:
+        _active_model = slot
+        print(f"[CH-RL] Active model switched to: {slot} ({RL_MODEL_REPOS[slot]})")
+    return _active_model
+
+
+def get_model_info() -> dict:
+    """Return info about available model slots."""
+    return {
+        slot: {
+            "repo": repo,
+            "loaded": slot in _models,
+            "active": slot == _active_model,
+        }
+        for slot, repo in RL_MODEL_REPOS.items()
+    }
 
 
 # ── Price history ─────────────────────────────────────────────────────────────
@@ -283,6 +327,7 @@ def _build_observation(
     capital: float,
     holdings: list,
     bbos: dict,
+    slot: str | None = None,
 ) -> Optional[np.ndarray]:
     """Build the 3008-dim observation vector for one symbol."""
     with _bars_lock:
@@ -299,10 +344,15 @@ def _build_observation(
 
     indicators = _compute_indicators(bars)  # (60, 50)
 
-    # Scale using the loaded scaler
-    if _scaler is not None:
+    # Scale using the scaler for the requested model slot
+    scaler = None
+    use_slot = slot or _active_model
+    with _model_lock:
+        if use_slot in _models:
+            scaler = _models[use_slot][1]
+    if scaler is not None:
         try:
-            indicators = _scaler.transform(indicators)
+            indicators = scaler.transform(indicators)
         except Exception:
             # Shape mismatch — normalize manually
             mean = indicators.mean(axis=0)
@@ -348,11 +398,19 @@ def decide_order_rl(
     holdings: list,
     bbos: dict,
     obligation_remaining: int,
+    model_slot: str | None = None,
 ) -> Optional[dict]:
     """Use the RL model to decide a trade. Returns order dict or None."""
-    if not _model:
-        if not _load_model():
+    slot = model_slot or _active_model
+    with _model_lock:
+        model_loaded = slot in _models
+    if not model_loaded:
+        if not _load_model(slot):
             return None
+    with _model_lock:
+        if slot not in _models:
+            return None
+        model, _slot_scaler = _models[slot]
 
     # Seed price history from BBOs for symbols we haven't seen
     for sym, bbo in bbos.items():
@@ -370,12 +428,12 @@ def decide_order_rl(
     candidates = []
 
     for sym, bbo in bbos.items():
-        obs = _build_observation(sym, capital, holdings, bbos)
+        obs = _build_observation(sym, capital, holdings, bbos, slot=slot)
         if obs is None:
             continue
 
         try:
-            action, _ = _model.predict(obs, deterministic=False)
+            action, _ = model.predict(obs, deterministic=False)
             action_type = int(round(float(action[0])))
             position_size = float(np.clip(action[1], 0.05, 0.5))
 

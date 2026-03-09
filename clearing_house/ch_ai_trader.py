@@ -7,7 +7,14 @@ Three background threads:
      for each unoccupied member using the configured strategy.
   3. _control_listener_thread – listens for session start/stop/suspend/resume.
 
-Strategy is selected via CH_AI_STRATEGY env var: "llm", "rl", or "hybrid".
+Strategy is selected via CH_AI_STRATEGY env var:
+  "hybrid"     – USR01-04 LLM, USR05-07 NN1, USR08-10 NN2 (default)
+  "hybrid-nn1" – USR01-05 NN1, USR06-10 LLM
+  "hybrid-nn2" – USR01-05 NN2, USR06-10 LLM
+  "llm"        – all members use LLM
+  "nn1"        – all members use NN1 (Adilbai/stock-trading-rl-agent)
+  "nn2"        – all members use NN2 (RayMelius/stockex-nn-agent)
+  Legacy alias: "rl" → "nn1"
 
 Call start() once from app.py after init_db().
 Call set_human_active(member_id) / set_human_inactive(member_id) on login/logout.
@@ -41,7 +48,11 @@ except ImportError:
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 CH_AI_INTERVAL = int(os.getenv("CH_AI_INTERVAL", "45"))   # seconds between AI cycles
-CH_AI_STRATEGY = os.getenv("CH_AI_STRATEGY", "hybrid")     # "llm", "rl", or "hybrid"
+# Normalize legacy strategy names on startup
+_raw_strategy = os.getenv("CH_AI_STRATEGY", "hybrid")
+_STRATEGY_ALIASES = {"rl": "nn1", "hybrid-nn1": "hybrid-nn1", "hybrid-nn2": "hybrid-nn2"}
+CH_AI_STRATEGY = _STRATEGY_ALIASES.get(_raw_strategy, _raw_strategy)
+VALID_STRATEGIES = {"llm", "nn1", "nn2", "hybrid", "hybrid-nn1", "hybrid-nn2"}
 CH_SOURCE      = "CLRH"
 
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
@@ -91,12 +102,21 @@ def set_strategy(strategy: str) -> str:
     """Dynamically switch AI strategy. Returns the active strategy."""
     global CH_AI_STRATEGY
     strategy = strategy.lower().strip()
-    if strategy not in ("llm", "rl", "hybrid"):
+    # Support legacy aliases
+    strategy = _STRATEGY_ALIASES.get(strategy, strategy)
+    if strategy not in VALID_STRATEGIES:
         return CH_AI_STRATEGY
-    if strategy in ("rl", "hybrid") and not _rl_available:
+    if strategy != "llm" and not _rl_available:
         print(f"[CH-AI] Cannot switch to {strategy}: RL deps not installed")
         return CH_AI_STRATEGY
     CH_AI_STRATEGY = strategy
+    # Tell RL trader which model slot to use
+    if _rl_available and strategy in ("nn1", "nn2"):
+        rl_trader.set_active_model(strategy)
+    elif _rl_available and strategy.startswith("hybrid-"):
+        nn_slot = strategy.split("-", 1)[1]
+        rl_trader.set_active_model(nn_slot)
+    # "hybrid" uses both nn1 and nn2, no single active model to set
     print(f"[CH-AI] Strategy switched to: {strategy}")
     return CH_AI_STRATEGY
 
@@ -109,9 +129,9 @@ def start() -> None:
     threading.Thread(target=_simulation_thread,     daemon=True, name="ch-ai-sim").start()
     threading.Thread(target=_control_listener_thread, daemon=True, name="ch-control").start()
     strategy = CH_AI_STRATEGY
-    if strategy in ("rl", "hybrid") and not _rl_available:
+    if strategy != "llm" and not _rl_available:
         strategy = "llm"
-        print("[CH-AI] WARNING: RL requested but deps missing, falling back to LLM")
+        print("[CH-AI] WARNING: NN requested but deps missing, falling back to LLM")
     print(f"[CH-AI] Background threads started (strategy={strategy})")
 
 
@@ -258,25 +278,38 @@ def _decide_order(member_id, capital, holdings, daily_trades, bbos, obligation_r
     """Dispatch to the configured strategy."""
     strategy = CH_AI_STRATEGY
 
-    # Hybrid: split members between RL and LLM
+    # Hybrid modes: split members between strategies
+    member_num = int(member_id[-2:])
     if strategy == "hybrid" and _rl_available:
-        member_num = int(member_id[-2:])
-        strategy = "rl" if member_num <= 5 else "llm"
+        # Default hybrid: USR01-04 LLM, USR05-07 NN1, USR08-10 NN2
+        if member_num <= 4:
+            strategy = "llm"
+        elif member_num <= 7:
+            strategy = "nn1"
+        else:
+            strategy = "nn2"
+    elif strategy.startswith("hybrid-") and _rl_available:
+        nn_slot = strategy.split("-", 1)[1]  # "nn1" or "nn2"
+        if member_num <= 5:
+            strategy = nn_slot
+        else:
+            strategy = "llm"
 
-    if strategy == "rl" and _rl_available:
+    if strategy in ("nn1", "nn2") and _rl_available:
         try:
             order = rl_trader.decide_order_rl(
                 member_id, capital, holdings, bbos, obligation_remaining,
+                model_slot=strategy,
             )
             if order and _validate_order(order, capital, holdings, bbos):
                 try:
-                    db.record_ai_decision(member_id, f"RL: {order}", order, source="rl")
+                    db.record_ai_decision(member_id, f"RL({strategy}): {order}", order, source=strategy)
                 except Exception:
                     pass
                 return order
         except Exception as e:
-            print(f"[CH-AI] RL strategy error for {member_id}: {e}")
-        # Fall through to LLM on RL failure
+            print(f"[CH-AI] {strategy} strategy error for {member_id}: {e}")
+        # Fall through to LLM on NN failure
         return _decide_order_llm(
             member_id, capital, holdings, daily_trades, bbos, obligation_remaining,
         )

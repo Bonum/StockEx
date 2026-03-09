@@ -51,8 +51,10 @@
         <td>
           {% if row.is_human %}
             <span class="badge-human">Human</span>
-          {% elif row.ai_type == 'NN' %}
-            <span class="badge-ai" style="background:#00695c;">NN</span>
+          {% elif row.ai_type == 'NN1' %}
+            <span class="badge-ai" style="background:#00695c;">NN1</span>
+          {% elif row.ai_type == 'NN2' %}
+            <span class="badge-ai" style="background:#00838f;">NN2</span>
           {% else %}
             <span class="badge-ai" style="background:#5c6bc0;">LLM</span>
           {% endif %}
@@ -82,7 +84,7 @@
 <p style="color:var(--muted); font-size:11px; margin-top:8px;">
   Daily obligation: each member must trade at least {{ obligation }} securities.
   Holdings value is calculated at current market mid-price.
-  Click a row for full member detail. Right-click table to switch AI strategy. Refreshes every 10 seconds.
+  Click a row for full member detail. Right-click table to switch AI model (LLM / NN1 / NN2). Refreshes every 10 seconds.
 </p>
 
 <!-- Member detail slide-out panel -->
@@ -121,9 +123,11 @@ async function refreshLeaderboard() {
         : `<span class="badge-bad">${row.total_securities}/{{ obligation }}</span>`;
       const typeBadge = row.is_human
         ? `<span class="badge-human">Human</span>`
-        : row.ai_type === 'NN'
-          ? `<span class="badge-ai" style="background:#00695c;">NN</span>`
-          : `<span class="badge-ai" style="background:#5c6bc0;">LLM</span>`;
+        : row.ai_type === 'NN1'
+          ? `<span class="badge-ai" style="background:#00695c;">NN1</span>`
+          : row.ai_type === 'NN2'
+            ? `<span class="badge-ai" style="background:#00838f;">NN2</span>`
+            : `<span class="badge-ai" style="background:#5c6bc0;">LLM</span>`;
       tbody.innerHTML += `
         <tr data-member="${row.member_id}" style="cursor:pointer">
           <td style="color:var(--muted)">${row.rank}</td>
@@ -183,9 +187,11 @@ async function openDetail(memberId) {
     const pnlSign = d.pnl >= 0 ? '+' : '';
     const typeBadge = d.is_human
       ? '<span class="badge-human">Human</span>'
-      : d.ai_type === 'NN'
-        ? '<span class="badge-ai" style="background:#00695c;">NN</span>'
-        : '<span class="badge-ai" style="background:#5c6bc0;">LLM</span>';
+      : d.ai_type === 'NN1'
+        ? '<span class="badge-ai" style="background:#00695c;">NN1</span>'
+        : d.ai_type === 'NN2'
+          ? '<span class="badge-ai" style="background:#00838f;">NN2</span>'
+          : '<span class="badge-ai" style="background:#5c6bc0;">LLM</span>';
     const oblStatus = d.daily.total_securities >= d.obligation
       ? `<span class="badge-ok">Met (${d.daily.total_securities}/${d.obligation})</span>`
       : `<span class="badge-bad">${d.daily.total_securities}/${d.obligation}</span>`;
@@ -273,13 +279,16 @@ async function openDetail(memberId) {
       html += `<h3 style="margin:20px 0 8px;">AI Reasoning (last ${d.ai_decisions.length})</h3>`;
       d.ai_decisions.forEach(dec => {
         const ts = new Date(dec.timestamp * 1000).toLocaleTimeString();
-        const srcBadge = dec.source === 'llm'
-          ? '<span style="background:#e8eaf6; color:#5c6bc0; padding:1px 6px; border-radius:8px; font-size:10px;">LLM</span>'
-          : dec.source === 'rl'
-            ? '<span style="background:#e0f2f1; color:#00695c; padding:1px 6px; border-radius:8px; font-size:10px;">NN</span>'
-            : dec.source === 'fallback'
-              ? '<span style="background:#fff3e0; color:#e65100; padding:1px 6px; border-radius:8px; font-size:10px;">Fallback</span>'
-              : `<span style="background:#ffebee; color:#c62828; padding:1px 6px; border-radius:8px; font-size:10px;">${dec.source}</span>`;
+        const srcColors = {
+          'llm': {bg:'#e8eaf6', fg:'#5c6bc0'},
+          'nn1': {bg:'#e0f2f1', fg:'#00695c'},
+          'nn2': {bg:'#e0f7fa', fg:'#00838f'},
+          'rl':  {bg:'#e0f2f1', fg:'#00695c'},
+          'fallback': {bg:'#fff3e0', fg:'#e65100'},
+        };
+        const sc = srcColors[dec.source] || {bg:'#ffebee', fg:'#c62828'};
+        const srcLabel = dec.source === 'rl' ? 'NN1' : dec.source.toUpperCase();
+        const srcBadge = `<span style="background:${sc.bg}; color:${sc.fg}; padding:1px 6px; border-radius:8px; font-size:10px;">${srcLabel}</span>`;
         const order = dec.parsed_order;
         const orderLine = order
           ? `<span class="${order.side === 'BUY' ? 'positive' : 'negative'}" style="font-weight:bold;">${order.side}</span> ${order.quantity} <strong>${order.symbol}</strong> @ €${fmt(order.price)}`
@@ -315,8 +324,12 @@ ctxMenu.style.cssText = `
 `;
 ctxMenu.innerHTML = `
   <div style="padding:6px 14px; color:var(--muted); font-size:11px; font-weight:bold;">AI Strategy</div>
-  <div class="ctx-item" data-strategy="hybrid" style="padding:8px 14px; cursor:pointer;">Hybrid (NN + LLM)</div>
-  <div class="ctx-item" data-strategy="rl" style="padding:8px 14px; cursor:pointer;">All NN (Neural Network)</div>
+  <div class="ctx-item" data-strategy="hybrid" style="padding:8px 14px; cursor:pointer;">Hybrid (LLM + NN1 + NN2)</div>
+  <div class="ctx-item" data-strategy="hybrid-nn1" style="padding:8px 14px; cursor:pointer;">Hybrid (NN1 + LLM)</div>
+  <div class="ctx-item" data-strategy="hybrid-nn2" style="padding:8px 14px; cursor:pointer;">Hybrid (NN2 + LLM)</div>
+  <div style="border-top:1px solid var(--border, #333); margin:4px 0;"></div>
+  <div class="ctx-item" data-strategy="nn1" style="padding:8px 14px; cursor:pointer;">All NN1</div>
+  <div class="ctx-item" data-strategy="nn2" style="padding:8px 14px; cursor:pointer;">All NN2</div>
   <div class="ctx-item" data-strategy="llm" style="padding:8px 14px; cursor:pointer;">All LLM</div>
 `;
 document.body.appendChild(ctxMenu);
@@ -341,6 +354,15 @@ document.getElementById('lb-table').addEventListener('contextmenu', (e) => {
 // Hide on click elsewhere
 document.addEventListener('click', () => ctxMenu.style.display = 'none');
 
+const STRATEGY_LABELS = {
+  'hybrid': 'Hybrid (LLM + NN1 + NN2)',
+  'hybrid-nn1': 'Hybrid (NN1 + LLM)',
+  'hybrid-nn2': 'Hybrid (NN2 + LLM)',
+  'nn1': 'All NN1',
+  'nn2': 'All NN2',
+  'llm': 'All LLM',
+};
+
 async function highlightCurrentStrategy() {
   try {
     const resp = await fetch('/ch/api/config');
@@ -349,9 +371,7 @@ async function highlightCurrentStrategy() {
       const isCurrent = item.dataset.strategy === cfg.strategy;
       item.style.fontWeight = isCurrent ? 'bold' : 'normal';
       item.style.color = isCurrent ? 'var(--accent, #42a5f5)' : 'var(--text, #ccc)';
-      // Reset text to base, then append checkmark
-      const base = item.dataset.strategy === 'hybrid' ? 'Hybrid (NN + LLM)'
-        : item.dataset.strategy === 'rl' ? 'All NN (Neural Network)' : 'All LLM';
+      const base = STRATEGY_LABELS[item.dataset.strategy] || item.dataset.strategy;
       item.textContent = isCurrent ? base + ' \u2713' : base;
     });
   } catch(e) {}

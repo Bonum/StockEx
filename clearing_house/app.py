@@ -111,17 +111,7 @@ def _build_leaderboard(bbos: dict) -> list[dict]:
         row["total_value"] = round(row["capital"] + holdings_value, 2)
         row["pnl"] = round(row["total_value"] - db.CH_STARTING_CAPITAL, 2)
         row["is_human"] = ai_trader.is_human_active(row["member_id"])
-        # Determine AI type for this member
-        strategy = ai_trader.get_strategy()
-        if row["is_human"]:
-            row["ai_type"] = "Human"
-        elif strategy == "rl":
-            row["ai_type"] = "NN"
-        elif strategy == "llm":
-            row["ai_type"] = "LLM"
-        else:  # hybrid
-            member_num = int(row["member_id"][-2:])
-            row["ai_type"] = "NN" if member_num <= 5 else "LLM"
+        row["ai_type"] = _member_ai_type(row["member_id"])
     # Sort by total_value descending
     rows.sort(key=lambda r: r["total_value"], reverse=True)
     for i, row in enumerate(rows):
@@ -412,12 +402,24 @@ def _member_ai_type(member_id: str) -> str:
     if ai_trader.is_human_active(member_id):
         return "Human"
     strategy = ai_trader.get_strategy()
-    if strategy == "rl":
-        return "NN"
+    if strategy in ("nn1", "nn2"):
+        return strategy.upper()
     if strategy == "llm":
         return "LLM"
     member_num = int(member_id[-2:])
-    return "NN" if member_num <= 5 else "LLM"
+    if strategy == "hybrid":
+        # USR01-04 LLM, USR05-07 NN1, USR08-10 NN2
+        if member_num <= 4:
+            return "LLM"
+        elif member_num <= 7:
+            return "NN1"
+        else:
+            return "NN2"
+    # hybrid-nn1 or hybrid-nn2
+    if strategy.startswith("hybrid-"):
+        nn_slot = strategy.split("-", 1)[1].upper()
+        return nn_slot if member_num <= 5 else "LLM"
+    return "LLM"
 
 
 @app.route("/ch/api/market")
@@ -427,11 +429,17 @@ def api_market():
 
 @app.route("/ch/api/config")
 def api_config():
-    return jsonify({
+    result = {
         "strategy": ai_trader.get_strategy(),
         "obligation": db.CH_DAILY_OBLIGATION,
         "ai_interval": int(os.getenv("CH_AI_INTERVAL", "45")),
-    })
+    }
+    try:
+        from ch_rl_trader import get_model_info
+        result["nn_models"] = get_model_info()
+    except Exception:
+        pass
+    return jsonify(result)
 
 
 @app.route("/ch/api/strategy", methods=["POST"])
