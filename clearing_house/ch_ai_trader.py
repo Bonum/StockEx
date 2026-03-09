@@ -7,14 +7,9 @@ Three background threads:
      for each unoccupied member using the configured strategy.
   3. _control_listener_thread – listens for session start/stop/suspend/resume.
 
-Strategy is selected via CH_AI_STRATEGY env var:
-  "hybrid"     – USR01-04 LLM, USR05-07 NN1, USR08-10 NN2 (default)
-  "hybrid-nn1" – USR01-05 NN1, USR06-10 LLM
-  "hybrid-nn2" – USR01-05 NN2, USR06-10 LLM
-  "llm"        – all members use LLM
-  "nn1"        – all members use NN1 (Adilbai/stock-trading-rl-agent)
-  "nn2"        – all members use NN2 (RayMelius/stockex-nn-agent)
-  Legacy alias: "rl" → "nn1"
+Each member has an individually assignable AI model type: "llm", "nn1", or "nn2".
+Default: USR01-04 LLM, USR05-07 NN1, USR08-10 NN2.
+Per-member assignment can be changed at runtime via set_member_strategy().
 
 Call start() once from app.py after init_db().
 Call set_human_active(member_id) / set_human_inactive(member_id) on login/logout.
@@ -48,11 +43,7 @@ except ImportError:
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 CH_AI_INTERVAL = int(os.getenv("CH_AI_INTERVAL", "45"))   # seconds between AI cycles
-# Normalize legacy strategy names on startup
-_raw_strategy = os.getenv("CH_AI_STRATEGY", "hybrid")
-_STRATEGY_ALIASES = {"rl": "nn1", "hybrid-nn1": "hybrid-nn1", "hybrid-nn2": "hybrid-nn2"}
-CH_AI_STRATEGY = _STRATEGY_ALIASES.get(_raw_strategy, _raw_strategy)
-VALID_STRATEGIES = {"llm", "nn1", "nn2", "hybrid", "hybrid-nn1", "hybrid-nn2"}
+VALID_MEMBER_STRATEGIES = {"llm", "nn1", "nn2"}
 CH_SOURCE      = "CLRH"
 
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "")
@@ -76,6 +67,29 @@ _seq_lock  = threading.Lock()
 _producer = None
 _producer_lock = threading.Lock()
 
+# Per-member AI model assignment: member_id → "llm" | "nn1" | "nn2"
+# Default: USR01-04 LLM, USR05-07 NN1, USR08-10 NN2
+_member_strategies: dict[str, str] = {}
+_strategies_lock = threading.Lock()
+
+def _default_member_strategy(member_id: str) -> str:
+    """Default strategy based on member number."""
+    num = int(member_id[-2:])
+    if num <= 4:
+        return "llm"
+    elif num <= 7:
+        return "nn1"
+    return "nn2"
+
+def _init_member_strategies():
+    """Initialize default per-member strategies."""
+    with _strategies_lock:
+        for i in range(1, 11):
+            mid = f"USR{i:02d}"
+            _member_strategies[mid] = _default_member_strategy(mid)
+
+_init_member_strategies()
+
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -94,31 +108,30 @@ def is_human_active(member_id: str) -> bool:
         return member_id in _active_humans
 
 
-def get_strategy() -> str:
-    return CH_AI_STRATEGY
+def get_member_strategy(member_id: str) -> str:
+    """Get the AI model type for a specific member."""
+    with _strategies_lock:
+        return _member_strategies.get(member_id, _default_member_strategy(member_id))
 
 
-def set_strategy(strategy: str) -> str:
-    """Dynamically switch AI strategy. Returns the active strategy."""
-    global CH_AI_STRATEGY
+def set_member_strategy(member_id: str, strategy: str) -> str:
+    """Set the AI model type for a specific member. Returns the active strategy."""
     strategy = strategy.lower().strip()
-    # Support legacy aliases
-    strategy = _STRATEGY_ALIASES.get(strategy, strategy)
-    if strategy not in VALID_STRATEGIES:
-        return CH_AI_STRATEGY
+    if strategy not in VALID_MEMBER_STRATEGIES:
+        return get_member_strategy(member_id)
     if strategy != "llm" and not _rl_available:
-        print(f"[CH-AI] Cannot switch to {strategy}: RL deps not installed")
-        return CH_AI_STRATEGY
-    CH_AI_STRATEGY = strategy
-    # Tell RL trader which model slot to use
-    if _rl_available and strategy in ("nn1", "nn2"):
-        rl_trader.set_active_model(strategy)
-    elif _rl_available and strategy.startswith("hybrid-"):
-        nn_slot = strategy.split("-", 1)[1]
-        rl_trader.set_active_model(nn_slot)
-    # "hybrid" uses both nn1 and nn2, no single active model to set
-    print(f"[CH-AI] Strategy switched to: {strategy}")
-    return CH_AI_STRATEGY
+        print(f"[CH-AI] Cannot set {member_id} to {strategy}: RL deps not installed")
+        return get_member_strategy(member_id)
+    with _strategies_lock:
+        _member_strategies[member_id] = strategy
+    print(f"[CH-AI] {member_id} strategy → {strategy}")
+    return strategy
+
+
+def get_all_member_strategies() -> dict[str, str]:
+    """Return a copy of all per-member strategy assignments."""
+    with _strategies_lock:
+        return dict(_member_strategies)
 
 
 def start() -> None:
@@ -128,11 +141,14 @@ def start() -> None:
     threading.Thread(target=_trade_consumer_thread, daemon=True, name="ch-trade-consumer").start()
     threading.Thread(target=_simulation_thread,     daemon=True, name="ch-ai-sim").start()
     threading.Thread(target=_control_listener_thread, daemon=True, name="ch-control").start()
-    strategy = CH_AI_STRATEGY
-    if strategy != "llm" and not _rl_available:
-        strategy = "llm"
-        print("[CH-AI] WARNING: NN requested but deps missing, falling back to LLM")
-    print(f"[CH-AI] Background threads started (strategy={strategy})")
+    if not _rl_available:
+        # Force all members to LLM if RL deps missing
+        with _strategies_lock:
+            for mid in _member_strategies:
+                _member_strategies[mid] = "llm"
+        print("[CH-AI] WARNING: NN deps missing, all members forced to LLM")
+    strategies = get_all_member_strategies()
+    print(f"[CH-AI] Background threads started (strategies={strategies})")
 
 
 # ── Kafka helpers ──────────────────────────────────────────────────────────────
@@ -275,25 +291,8 @@ def _run_simulation_cycle():
 
 
 def _decide_order(member_id, capital, holdings, daily_trades, bbos, obligation_remaining):
-    """Dispatch to the configured strategy."""
-    strategy = CH_AI_STRATEGY
-
-    # Hybrid modes: split members between strategies
-    member_num = int(member_id[-2:])
-    if strategy == "hybrid" and _rl_available:
-        # Default hybrid: USR01-04 LLM, USR05-07 NN1, USR08-10 NN2
-        if member_num <= 4:
-            strategy = "llm"
-        elif member_num <= 7:
-            strategy = "nn1"
-        else:
-            strategy = "nn2"
-    elif strategy.startswith("hybrid-") and _rl_available:
-        nn_slot = strategy.split("-", 1)[1]  # "nn1" or "nn2"
-        if member_num <= 5:
-            strategy = nn_slot
-        else:
-            strategy = "llm"
+    """Dispatch to the per-member strategy."""
+    strategy = get_member_strategy(member_id)
 
     if strategy in ("nn1", "nn2") and _rl_available:
         try:

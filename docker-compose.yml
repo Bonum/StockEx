@@ -203,7 +203,6 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
       - OLLAMA_HOST=${OLLAMA_HOST:-}
-      - CH_AI_STRATEGY=${CH_AI_STRATEGY:-hybrid}
       - CH_RL_MODEL_REPO_NN1=${CH_RL_MODEL_REPO_NN1:-Adilbai/stock-trading-rl-agent}
       - CH_RL_MODEL_REPO_NN2=${CH_RL_MODEL_REPO_NN2:-RayMelius/stockex-nn-agent}
     extra_hosts:

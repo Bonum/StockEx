@@ -401,25 +401,7 @@ def api_member_detail(member_id):
 def _member_ai_type(member_id: str) -> str:
     if ai_trader.is_human_active(member_id):
         return "Human"
-    strategy = ai_trader.get_strategy()
-    if strategy in ("nn1", "nn2"):
-        return strategy.upper()
-    if strategy == "llm":
-        return "LLM"
-    member_num = int(member_id[-2:])
-    if strategy == "hybrid":
-        # USR01-04 LLM, USR05-07 NN1, USR08-10 NN2
-        if member_num <= 4:
-            return "LLM"
-        elif member_num <= 7:
-            return "NN1"
-        else:
-            return "NN2"
-    # hybrid-nn1 or hybrid-nn2
-    if strategy.startswith("hybrid-"):
-        nn_slot = strategy.split("-", 1)[1].upper()
-        return nn_slot if member_num <= 5 else "LLM"
-    return "LLM"
+    return ai_trader.get_member_strategy(member_id).upper()
 
 
 @app.route("/ch/api/market")
@@ -430,7 +412,7 @@ def api_market():
 @app.route("/ch/api/config")
 def api_config():
     result = {
-        "strategy": ai_trader.get_strategy(),
+        "member_strategies": ai_trader.get_all_member_strategies(),
         "obligation": db.CH_DAILY_OBLIGATION,
         "ai_interval": int(os.getenv("CH_AI_INTERVAL", "45")),
     }
@@ -442,13 +424,15 @@ def api_config():
     return jsonify(result)
 
 
-@app.route("/ch/api/strategy", methods=["POST"])
-def api_set_strategy():
+@app.route("/ch/api/member/<member_id>/strategy", methods=["POST"])
+def api_set_member_strategy(member_id):
+    """Set the AI model type for a specific member."""
+    member_id = member_id.upper().strip()
     data = request.get_json(force=True)
     strategy = data.get("strategy", "")
-    result = ai_trader.set_strategy(strategy)
-    _broadcast("config", {"strategy": result})
-    return jsonify({"status": "ok", "strategy": result})
+    result = ai_trader.set_member_strategy(member_id, strategy)
+    _broadcast("config", {"member_id": member_id, "strategy": result})
+    return jsonify({"status": "ok", "member_id": member_id, "strategy": result})
 
 
 # ── SSE ────────────────────────────────────────────────────────────────────────

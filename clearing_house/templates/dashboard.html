@@ -84,7 +84,7 @@
 <p style="color:var(--muted); font-size:11px; margin-top:8px;">
   Daily obligation: each member must trade at least {{ obligation }} securities.
   Holdings value is calculated at current market mid-price.
-  Click a row for full member detail. Right-click table to switch AI model (LLM / NN1 / NN2). Refreshes every 10 seconds.
+  Click a row for full member detail. Right-click a member's Type badge to switch their AI model. Refreshes every 10 seconds.
 </p>
 
 <!-- Member detail slide-out panel -->
@@ -170,6 +170,7 @@ function bindRowClicks() {
     tr.style.cursor = 'pointer';
     tr.onclick = () => openDetail(tr.dataset.member);
   });
+  bindContextMenus();
 }
 bindRowClicks();
 
@@ -313,26 +314,24 @@ async function openDetail(memberId) {
   }
 }
 
-// ── Right-click context menu: switch AI strategy ───────────────────
+// ── Right-click context menu: per-member AI model switch ────────────
 const ctxMenu = document.createElement('div');
 ctxMenu.id = 'strategy-menu';
 ctxMenu.style.cssText = `
   display:none; position:fixed; z-index:2000;
   background:var(--card-bg, #1e1e2e); border:1px solid var(--border, #444);
   border-radius:8px; padding:6px 0; box-shadow:0 4px 16px rgba(0,0,0,0.4);
-  min-width:180px; font-size:13px;
+  min-width:160px; font-size:13px;
 `;
 ctxMenu.innerHTML = `
-  <div style="padding:6px 14px; color:var(--muted); font-size:11px; font-weight:bold;">AI Strategy</div>
-  <div class="ctx-item" data-strategy="hybrid" style="padding:8px 14px; cursor:pointer;">Hybrid (LLM + NN1 + NN2)</div>
-  <div class="ctx-item" data-strategy="hybrid-nn1" style="padding:8px 14px; cursor:pointer;">Hybrid (NN1 + LLM)</div>
-  <div class="ctx-item" data-strategy="hybrid-nn2" style="padding:8px 14px; cursor:pointer;">Hybrid (NN2 + LLM)</div>
-  <div style="border-top:1px solid var(--border, #333); margin:4px 0;"></div>
-  <div class="ctx-item" data-strategy="nn1" style="padding:8px 14px; cursor:pointer;">All NN1</div>
-  <div class="ctx-item" data-strategy="nn2" style="padding:8px 14px; cursor:pointer;">All NN2</div>
-  <div class="ctx-item" data-strategy="llm" style="padding:8px 14px; cursor:pointer;">All LLM</div>
+  <div id="ctx-title" style="padding:6px 14px; color:var(--muted); font-size:11px; font-weight:bold;">Switch AI Model</div>
+  <div class="ctx-item" data-strategy="llm" style="padding:8px 14px; cursor:pointer;">LLM</div>
+  <div class="ctx-item" data-strategy="nn1" style="padding:8px 14px; cursor:pointer;">NN1</div>
+  <div class="ctx-item" data-strategy="nn2" style="padding:8px 14px; cursor:pointer;">NN2</div>
 `;
 document.body.appendChild(ctxMenu);
+
+let ctxMemberId = null;  // which member the menu is open for
 
 // Style hover
 ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
@@ -340,48 +339,47 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
   item.addEventListener('mouseleave', () => item.style.background = 'none');
 });
 
-// Show on right-click anywhere on the leaderboard table
-document.getElementById('lb-table').addEventListener('contextmenu', (e) => {
-  e.preventDefault();
-  ctxMenu.style.display = 'block';
-  const x = Math.min(e.clientX, window.innerWidth - 200);
-  const y = Math.min(e.clientY, window.innerHeight - 140);
-  ctxMenu.style.left = x + 'px';
-  ctxMenu.style.top = y + 'px';
-  highlightCurrentStrategy();
-});
+function bindContextMenus() {
+  document.querySelectorAll('#lb-table tbody tr[data-member]').forEach(tr => {
+    // Right-click on the Type cell (3rd column)
+    const typeCell = tr.children[2];
+    if (!typeCell) return;
+    typeCell.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ctxMemberId = tr.dataset.member;
+      // If member is human, don't show menu
+      const badge = typeCell.querySelector('.badge-human');
+      if (badge) return;
+      ctxMenu.style.display = 'block';
+      const x = Math.min(e.clientX, window.innerWidth - 180);
+      const y = Math.min(e.clientY, window.innerHeight - 120);
+      ctxMenu.style.left = x + 'px';
+      ctxMenu.style.top = y + 'px';
+      document.getElementById('ctx-title').textContent = ctxMemberId + ' — AI Model';
+      // Highlight current strategy
+      const currentType = typeCell.textContent.trim().toLowerCase();
+      ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
+        const isCurrent = item.dataset.strategy === currentType;
+        item.style.fontWeight = isCurrent ? 'bold' : 'normal';
+        item.style.color = isCurrent ? 'var(--accent, #42a5f5)' : 'var(--text, #ccc)';
+        const label = item.dataset.strategy.toUpperCase();
+        item.textContent = isCurrent ? label + ' \u2713' : label;
+      });
+    });
+  });
+}
+bindContextMenus();
 
 // Hide on click elsewhere
 document.addEventListener('click', () => ctxMenu.style.display = 'none');
 
-const STRATEGY_LABELS = {
-  'hybrid': 'Hybrid (LLM + NN1 + NN2)',
-  'hybrid-nn1': 'Hybrid (NN1 + LLM)',
-  'hybrid-nn2': 'Hybrid (NN2 + LLM)',
-  'nn1': 'All NN1',
-  'nn2': 'All NN2',
-  'llm': 'All LLM',
-};
-
-async function highlightCurrentStrategy() {
-  try {
-    const resp = await fetch('/ch/api/config');
-    const cfg = await resp.json();
-    ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
-      const isCurrent = item.dataset.strategy === cfg.strategy;
-      item.style.fontWeight = isCurrent ? 'bold' : 'normal';
-      item.style.color = isCurrent ? 'var(--accent, #42a5f5)' : 'var(--text, #ccc)';
-      const base = STRATEGY_LABELS[item.dataset.strategy] || item.dataset.strategy;
-      item.textContent = isCurrent ? base + ' \u2713' : base;
-    });
-  } catch(e) {}
-}
-
 ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
   item.addEventListener('click', async () => {
     ctxMenu.style.display = 'none';
+    if (!ctxMemberId) return;
     try {
-      const resp = await fetch('/ch/api/strategy', {
+      const resp = await fetch(`/ch/api/member/${ctxMemberId}/strategy`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({strategy: item.dataset.strategy}),
