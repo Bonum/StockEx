@@ -40,6 +40,9 @@ def ts_filter(ts):
 MATCHER_URL = os.getenv("MATCHER_URL", Config.MATCHER_URL)
 SECURITIES_FILE = os.getenv("SECURITIES_FILE", "/app/shared/data/securities.txt")
 
+# API key for external integrations (e.g. Soci agents trading)
+CH_API_KEY = os.getenv("CH_API_KEY", "soci-stockex-2024")
+
 # SSE clients
 _sse_clients: list[Queue] = []
 _sse_lock = threading.Lock()
@@ -433,6 +436,54 @@ def api_set_member_strategy(member_id):
     result = ai_trader.set_member_strategy(member_id, strategy)
     _broadcast("config", {"member_id": member_id, "strategy": result})
     return jsonify({"status": "ok", "member_id": member_id, "strategy": result})
+
+
+@app.route("/ch/api/order", methods=["POST"])
+def api_order():
+    """Place an order via API key auth (for external integrations like Soci).
+
+    JSON body: {api_key, member_id, symbol, side, quantity, price}
+    """
+    data = request.get_json(force=True)
+    api_key = data.get("api_key", "")
+    if api_key != CH_API_KEY:
+        return jsonify({"error": "Invalid API key"}), 403
+
+    member_id = str(data.get("member_id", "")).upper().strip()
+    symbol    = str(data.get("symbol", "")).upper()
+    side      = str(data.get("side", "")).upper()
+    quantity  = int(data.get("quantity", 0))
+    price     = float(data.get("price", 0))
+
+    if side not in ("BUY", "SELL") or quantity <= 0 or price <= 0 or not symbol:
+        return jsonify({"error": "Invalid order parameters"}), 400
+
+    member = db.get_member(member_id)
+    if not member:
+        return jsonify({"error": f"Member {member_id} not found"}), 404
+
+    if side == "BUY" and quantity * price > member["capital"]:
+        return jsonify({"error": f"Insufficient capital (have €{member['capital']:.2f})"}), 400
+
+    if side == "SELL":
+        holding = db.get_holding(member_id, symbol)
+        if holding["quantity"] < quantity:
+            return jsonify({"error": f"Insufficient holdings ({holding['quantity']} shares)"}), 400
+
+    cl_ord_id = f"{member_id}-{int(time.time()*1000)}-API"
+    msg = {
+        "cl_ord_id":     cl_ord_id,
+        "symbol":        symbol,
+        "side":          side,
+        "quantity":       quantity,
+        "price":         price,
+        "ord_type":      "LIMIT",
+        "time_in_force": "DAY",
+        "timestamp":     time.time(),
+        "source":        "CLRH",
+    }
+    get_producer().send(Config.ORDERS_TOPIC, msg)
+    return jsonify({"status": "ok", "cl_ord_id": cl_ord_id, "member_id": member_id})
 
 
 # ── SSE ────────────────────────────────────────────────────────────────────────
